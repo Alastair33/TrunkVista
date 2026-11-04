@@ -12,6 +12,36 @@ python3 channelview.py --demo      # try it with simulated Cisco devices, no Zab
 channelview_demo.html              # or just open this file in a browser: a standalone demo
 ```
 
+## Screenshots
+
+All of these show the built-in demo data (simulated Cisco devices), so no real network is on display.
+
+**Weathermap.** Each link is coloured by its utilisation and labelled with % and bit/s for each direction; the legend shows the scale.
+
+![A weathermap tab: five Cisco devices joined by coloured links](docs/screenshots/01-weathermap.png)
+
+**Status at a glance.** A link whose interface is down turns red and says DOWN; a device with open problems gets a numbered badge.
+
+![The Branches weathermap with one link down](docs/screenshots/02-weathermap-link-down.png)
+
+**Link hover.** The card shows the status, both directions, the capacity and an in / out traffic graph (range selectable in the header).
+
+![The hover card of a link with its traffic graph](docs/screenshots/03-link-traffic-graph.png)
+
+**Device tabs.** Cards or a sortable list, with a filter, grouping, paging, and the busiest interfaces per device.
+
+![A device tab in card view](docs/screenshots/04-devices-cards.png)
+![A device tab in list view with 128 hosts](docs/screenshots/05-devices-list.png)
+
+**Editor.** Edit mode: tabs, devices (added from Zabbix) and links; right-click a device or link for the shape, size, notifications, modify and delete.
+
+![Edit mode with the right-click menu of a device](docs/screenshots/06-editor-and-context-menu.png)
+![The Modify link window](docs/screenshots/07-modify-link.png)
+
+**Playlists and kiosk mode.** A playlist rotates through tabs on a timer; kiosk mode hides the header and the controls (a Back button and the playlist progress remain), for a wall display.
+
+![Kiosk mode showing a playlist](docs/screenshots/08-kiosk-playlist.png)
+
 ## Install on Debian / Ubuntu
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
@@ -20,7 +50,7 @@ Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
 2. Install it:
 
    ```
-   sudo apt install ./channelview_1.0.0_all.deb
+   sudo apt install ./channelview_1.1.0_all.deb
    ```
 
    This creates the `channelview` system user, installs the systemd service `channelview`, enables it and starts it.
