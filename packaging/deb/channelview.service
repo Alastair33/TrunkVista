@@ -1,0 +1,47 @@
+[Unit]
+Description=Zabbix weathermap dashboard
+Documentation=file:///usr/share/doc/channelview/README.md.gz
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=channelview
+Group=channelview
+# Defaults; /etc/default/channelview overrides them (listen address, port, extra options).
+Environment=CHANNELVIEW_HOST=127.0.0.1
+Environment=CHANNELVIEW_PORT=8088
+Environment=CHANNELVIEW_ARGS=
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=-/etc/default/channelview
+# systemd creates /var/lib/channelview for the service user: connections.json (the Zabbix API token, owner-only), the layouts,
+# config.json and the edit token live there.
+StateDirectory=channelview
+StateDirectoryMode=0750
+WorkingDirectory=/var/lib/channelview
+ExecStart=/usr/lib/channelview/channelview.py --no-browser --host ${CHANNELVIEW_HOST} --port ${CHANNELVIEW_PORT} --data-dir /var/lib/channelview --token-file /var/lib/channelview/edit_token $CHANNELVIEW_ARGS
+Restart=on-failure
+RestartSec=5
+UMask=0077
+
+# Sandbox: the dashboard only needs the network and its own data folder.
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+# A port below 1024 needs:  systemctl edit channelview   ->   [Service]  AmbientCapabilities=CAP_NET_BIND_SERVICE
+
+[Install]
+WantedBy=multi-user.target

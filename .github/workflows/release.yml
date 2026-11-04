@@ -1,0 +1,97 @@
+name: Release
+
+# Runs when a tag such as v1.2.0 (or v1.2.0-rc.1 for a pre-release) is pushed - packaging/release.sh makes and pushes that tag.
+# Builds the .deb, installs it for real on the runner as a test, and publishes it on the GitHub Releases page together with
+# SHA256SUMS (and SHA256SUMS.sig when you have set up signing - see README.md). channelview-update on the servers installs from there.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write      # create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tag must match VERSION and CHANGELOG.md
+        run: |
+          version="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' channelview.py | head -n1)"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME but channelview.py says VERSION = \"$version\". Use packaging/release.sh to make releases."
+            exit 1
+          fi
+          if ! grep -qF "## [$version]" CHANGELOG.md; then
+            echo "::error::CHANGELOG.md has no '## [$version]' section"
+            exit 1
+          fi
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: The standalone demo page matches the dashboard page
+        run: |
+          python3 tools/build_demo.py "$RUNNER_TEMP/demo.html"
+          diff -q "$RUNNER_TEMP/demo.html" channelview_demo.html
+
+      - name: Build the .deb
+        env:
+          DEB_MAINTAINER: "${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>"
+        run: ./packaging/build_deb.sh      # GITHUB_REPOSITORY is set by Actions: it ends up in /etc/default/channelview
+
+      - name: Lintian (errors fail the release)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lintian
+          lintian --fail-on error dist/*.deb
+
+      - name: Install, upgrade, update, remove and purge it for real
+        run: sudo ./tests/e2e_debian.sh dist/channelview_*_all.deb
+
+      - name: Collect the release files and checksums
+        run: |
+          cp channelview_demo.html dist/
+          cd dist
+          sha256sum -- *.deb channelview_demo.html > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Sign SHA256SUMS (only if the signing secrets exist)
+        env:
+          RELEASE_GPG_PRIVATE_KEY: ${{ secrets.RELEASE_GPG_PRIVATE_KEY }}
+          RELEASE_GPG_PASSPHRASE: ${{ secrets.RELEASE_GPG_PASSPHRASE }}
+        run: |
+          if [ -z "$RELEASE_GPG_PRIVATE_KEY" ]; then
+            echo "No RELEASE_GPG_PRIVATE_KEY secret: publishing without a signature (SHA256SUMS only)."
+            exit 0
+          fi
+          export GNUPGHOME="$RUNNER_TEMP/gnupg"; install -d -m 0700 "$GNUPGHOME"
+          printf '%s\n' "$RELEASE_GPG_PRIVATE_KEY" | gpg --batch --quiet --import
+          gpg --batch --yes --pinentry-mode loopback --passphrase "${RELEASE_GPG_PASSPHRASE:-}" \
+              --detach-sign --output dist/SHA256SUMS.sig dist/SHA256SUMS
+          gpgconf --kill gpg-agent || true
+          rm -rf "$GNUPGHOME"
+          echo "signed: dist/SHA256SUMS.sig"
+
+      - name: Release notes from CHANGELOG.md
+        run: |
+          awk -v v="$VERSION" '
+            /^## \[/ { if (found) exit; if (index($0, "## [" v "]") == 1) found = 1; next }
+            found
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          {
+            echo
+            echo "---"
+            echo "Install:  \`sudo apt install ./channelview_${VERSION}_all.deb\`   -   update later with:  \`sudo channelview-update\`"
+          } >> "$RUNNER_TEMP/notes.md"
+          cat "$RUNNER_TEMP/notes.md"
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          flags=()
+          case "$GITHUB_REF_NAME" in *-*) flags+=(--prerelease) ;; esac
+          gh release create "$GITHUB_REF_NAME" dist/* \
+            --verify-tag --title "$GITHUB_REF_NAME" --notes-file "$RUNNER_TEMP/notes.md" "${flags[@]}"

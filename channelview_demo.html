@@ -1,0 +1,2343 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChannelView - standalone demo</title>
+<link rel="icon" href="data:,">
+<style>
+:root{--bg:#0b0f14;--panel:#121923;--panel2:#18212d;--line:#243040;--text:#e6edf3;--muted:#8b98a8;--accent:#4aa3ff;--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#wrap{display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr);height:100vh}      /* minmax(0,..): a wide map must not stretch the page (and push the header buttons off screen) */
+body.editing #wrap{grid-template-columns:minmax(0,1fr) 390px}
+header{grid-column:1/-1;display:flex;align-items:center;gap:14px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--line)}
+.logo{font-weight:700;letter-spacing:.02em;white-space:nowrap}
+#tabs{display:flex;gap:4px;overflow-x:auto;flex:1;min-width:0}
+.tab{background:transparent;border:1px solid transparent;color:var(--muted);padding:6px 12px;border-radius:6px;cursor:pointer;white-space:nowrap}
+.tab:hover{color:var(--text)}
+.tab.on{color:var(--text);background:var(--panel2);border-color:var(--line);box-shadow:inset 0 -2px 0 var(--accent)}
+button,select,input{font:inherit;color:var(--text)}
+button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:5px 10px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button.on{background:var(--accent);color:#04121f;border-color:var(--accent)}
+.hsel{display:flex;align-items:center;gap:5px;color:var(--muted);font-size:12px;white-space:nowrap}
+.hsel select{padding:3px 6px;font-size:12px}
+button.x{padding:1px 7px;background:transparent;border-color:transparent;color:var(--muted)}
+button.x:hover{color:var(--bad)}
+button.primary{background:var(--accent);color:#04121f;border-color:var(--accent)}
+select,input{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px;min-width:0}
+input:focus,select:focus{outline:1px solid var(--accent)}
+#pl{display:flex;align-items:center;gap:6px}
+#pl-bar{width:90px;height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+#pl-fill{height:100%;width:0;background:var(--accent)}
+.chip{font-size:12px;padding:3px 10px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap;max-width:420px;overflow:hidden;text-overflow:ellipsis}
+.chip.ok{color:#86efac;border-color:#14532d}
+.chip.bad{color:#fca5a5;border-color:#7f1d1d}
+.badge{font-size:11px;padding:2px 8px;border-radius:4px;background:#3b2f0b;color:#fcd34d;border:1px solid #6b5416}
+#main{position:relative;min-width:0;min-height:0;overflow:auto}
+svg.map{width:100%;height:100%;display:block;background:radial-gradient(circle at 50% 40%,#0f1722,#0b0f14)}
+svg text{font-family:inherit}
+body.editing svg.map .node{cursor:move}
+.legend{position:absolute;left:12px;bottom:12px;background:#0b0f14d9;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:11px;max-width:80%}
+.legend .bars{display:flex;margin:4px 0}
+.legend .lg{padding:2px 7px;font-weight:600;white-space:nowrap}
+.legend .lg:first-child{border-radius:4px 0 0 4px}.legend .lg:last-child{border-radius:0 4px 4px 0}
+.legend label{color:var(--muted);cursor:pointer}
+.legend.vert{max-width:190px}
+.legend.vert .bars{flex-direction:column}
+.legend.vert .lg{text-align:center}
+.legend.vert .lg:first-child{border-radius:4px 4px 0 0}.legend.vert .lg:last-child{border-radius:0 0 4px 4px}
+.legend.vert .muted{white-space:normal}
+.legend.editable{border-color:var(--accent);cursor:move;touch-action:none;user-select:none}
+.legend .lg-bar{display:flex;align-items:center;gap:6px;margin:-2px 0 6px;padding-bottom:5px;border-bottom:1px dashed var(--line);color:var(--muted)}
+.legend .lg-bar .grip{flex:1;white-space:nowrap}
+.legend .lg-bar button{padding:1px 7px;font-size:11px;line-height:1.5}
+.stamp{position:absolute;right:12px;bottom:10px;color:var(--muted);font-size:11px}
+#tip{position:fixed;z-index:50;pointer-events:none;background:#05080cf2;border:1px solid var(--line);border-radius:8px;padding:8px 10px;font-size:12px;max-width:380px}
+#tip .tip-h{font-weight:700;margin-bottom:3px}
+#tip .tgraph{margin-top:7px;width:340px}
+#tip .tgraph.loading{min-height:150px;display:flex;align-items:center;justify-content:center}
+#tip .tg-h{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;margin-bottom:2px}
+#tip .tg-row{font-size:11px;margin-top:5px}
+#tip .tg-st{padding-left:18px;white-space:nowrap}
+#tip .tg-sw{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:6px;vertical-align:middle}
+#tip svg{display:block}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:10px;padding:12px 14px}
+.card h3{margin:0 0 4px;font-size:15px;display:flex;align-items:center;gap:8px}
+.dot{width:10px;height:10px;border-radius:50%;display:inline-block;flex:none}
+.meta{color:var(--muted);font-size:12px;display:flex;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.prob{font-size:12px;padding:3px 8px;border-radius:4px;margin:3px 0;background:#1d2633;border-left:3px solid var(--warn)}
+.if{display:grid;grid-template-columns:92px 1fr auto;gap:8px;align-items:center;font-size:12px;margin:4px 0}
+.if .bar{height:8px;border-radius:4px;background:var(--line);overflow:hidden}
+.if .bar i{display:block;height:100%}
+.empty{padding:40px;color:var(--muted);text-align:center}
+.muted{color:var(--muted)}.err{color:#fca5a5}.pad{padding:4px 8px}
+#drawer{background:var(--panel);border-left:1px solid var(--line);overflow-y:auto;padding:0 0 40px}
+.drawer-h{display:flex;justify-content:space-between;align-items:center;padding:10px 14px;position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--line);z-index:2}
+details.sec{border-bottom:1px solid var(--line)}
+details.sec>summary{cursor:pointer;padding:9px 14px;font-weight:600;color:var(--muted);text-transform:uppercase;font-size:11px;letter-spacing:.07em}
+details.sec>div{padding:2px 14px 12px}
+.row{display:flex;align-items:center;gap:6px;margin:4px 0}
+.row.wrap{flex-wrap:wrap}
+.row.cur{background:#16263a;border-radius:6px}
+.row input,.row select{flex:1}
+.grow{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link{cursor:pointer}.link:hover{color:var(--accent)}
+.fld{display:block;margin:6px 0}.fld>span{display:block;font-size:11px;color:var(--muted);margin-bottom:2px}
+.fld input,.fld select{width:100%}
+.ifc{display:block}.ifc select,.ifc input{width:100%}
+.search .results{max-height:160px;overflow:auto;border:1px solid var(--line);border-radius:6px;margin-top:3px}
+.search .results:empty{display:none}
+.search input{width:100%}
+.hit{padding:5px 8px;cursor:pointer}.hit:hover{background:var(--panel2)}
+.hint{font-size:12px;color:var(--muted);margin:6px 0}
+body.kiosk header,body.kiosk #drawer{display:none}
+body.kiosk #wrap{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr)}
+body.kiosk.idle{cursor:none}
+#hud{position:fixed;left:12px;top:10px;z-index:20;background:#0b0f14b0;border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:12px;color:var(--muted);display:none}
+body.kiosk #hud{display:flex;align-items:center;gap:10px}
+#hud{padding:4px 12px 4px 4px}#hud button{padding:3px 11px;font-size:12px}
+@media(max-width:900px){body.editing #wrap{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) 50vh}}
+@media(max-width:1600px){header{flex-wrap:wrap;gap:8px 14px}#tabs{order:9;flex:1 1 100%}}      /* below this the tab strip would get under ~250px next to the playlist, the two display selects and the status chip: it takes a row of its own */
+@media(max-width:900px){.chip{max-width:240px}}
+.devbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 16px 0}
+.devbar input[type=search]{width:300px;max-width:100%}
+.devbar .inl2{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap}
+.devbar .grow{font-size:12px}
+.seg{display:inline-flex}.seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}
+body.kiosk .devbar{visibility:hidden;height:46px;padding:0;overflow:hidden;flex-wrap:nowrap}      /* keeps room for the Back button, so it never covers the first row */
+.dwrap{padding:12px 16px 16px;overflow-x:auto}
+table.dt{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;font-size:13px;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.dt th{text-align:left;font-weight:600;font-size:12px;color:var(--muted);padding:9px 10px;background:var(--panel2);border-bottom:1px solid var(--line);cursor:pointer;user-select:none;white-space:nowrap}
+.dt th:hover{color:var(--text)}.dt th .ar{margin-left:5px;color:var(--accent);font-size:10px}
+.dt td{padding:7px 10px;border-bottom:1px solid #1a2330;vertical-align:middle}
+.dt tr:last-child td{border-bottom:0}
+.bend{fill:var(--accent);stroke:#fff;stroke-width:2;cursor:move}.bend:hover{fill:#7cc0ff}
+.bend.idle{fill:rgba(11,17,24,.6);stroke:#d6ecff;stroke-width:1.6}.bend.idle:hover{opacity:1;fill:var(--accent)}
+.dt tr.drow{cursor:pointer}.dt tr.drow:hover td{background:#16202c}
+.dt td.nm{font-weight:600;white-space:nowrap}
+.dt td.cl{max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.prob .sevn{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-right:6px}
+.dt .twisty{display:inline-block;width:14px;color:var(--muted);font-size:11px}
+.dt .dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:8px;vertical-align:baseline}
+.dt .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;white-space:nowrap}
+.dt .st{display:inline-block;padding:0 9px;border-radius:999px;font-size:11px;border:1px solid var(--line);line-height:18px}
+.dt .pcount{display:inline-block;min-width:20px;text-align:center;padding:0 6px;border-radius:999px;font-size:11px;font-weight:700;color:#08121c;line-height:18px;margin-right:8px}
+.dt .ptxt{display:inline-block;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:bottom;color:var(--muted);font-size:12px}
+.dt .ifn{display:inline-block;min-width:76px}
+.dt .pbar{display:inline-block;width:64px;height:8px;border-radius:4px;background:var(--line);overflow:hidden;vertical-align:middle;margin:0 8px}
+.dt .pbar i{display:block;height:100%}
+.dt .pv{font-size:12px;color:var(--muted);white-space:nowrap}
+.dt tr.det td{background:#0d141d;padding:8px 14px 12px 32px}
+.dt .dif{max-width:520px;margin-top:6px}
+.ctx{position:fixed;z-index:80;min-width:200px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px #000b;padding:5px}
+.ctx-h{padding:6px 10px 7px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--line);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em}
+.ctx-h b{display:block;color:var(--text);font-size:13px;text-transform:none;letter-spacing:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ctx button{display:flex;gap:10px;align-items:center;width:100%;text-align:left;background:transparent;border:0;border-radius:6px;padding:8px 10px;font-size:13px}
+.ctx button:hover,.ctx button:focus{background:#16263a;outline:none}
+.ctx button.danger{color:#fca5a5}.ctx button.danger:hover,.ctx button.danger:focus{background:#2a1214}
+.ctx .ci{width:16px;text-align:center}
+.ctx-sep{height:1px;background:var(--line);margin:5px 2px}
+.ctx-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 10px}
+.ctx-l{font-size:12px;color:var(--muted)}
+.ctx .opts{display:flex;gap:4px}
+.ctx .opts button{width:auto;min-width:32px;justify-content:center;padding:5px 8px;border:1px solid var(--line);border-radius:6px;font-size:12px;background:#0f1722}
+.ctx .opts button:hover,.ctx .opts button:focus{border-color:var(--accent);background:#16263a}
+.ctx .opts button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:700}
+#mdl{position:fixed;inset:0;z-index:90;background:#05080ccc;display:flex;align-items:center;justify-content:center;padding:16px}
+.mbox{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(480px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 20px 60px #000a}
+.mbox .mh{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+.mbox .mb{padding:14px 18px 6px;overflow-y:auto}
+.mbox .mb p{margin:0 0 10px}
+.mbox .mb .row{align-items:flex-start}.mbox .mb .row .fld{flex:1}
+.mbox .mb ul{margin:6px 0 0;padding-left:20px}.mbox .mb li{margin:3px 0;font-size:12px}
+.mbox .mf{display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 16px}
+button.dangerbtn{background:#b91c1c;border-color:#ef4444;color:#fff}button.dangerbtn:hover{background:#dc2626}
+.devbar select{padding:4px 8px}
+.devbar .seg button{padding:4px 10px}
+.pager{display:flex;gap:5px;align-items:center;justify-content:center;flex-wrap:wrap;padding:2px 16px 24px}
+.pager button{min-width:34px;padding:4px 9px}
+.pager button:disabled{opacity:.4;cursor:default;border-color:var(--line)}
+.pager .gap{color:var(--muted);padding:0 3px}
+.pager .pinfo{margin-left:10px;font-size:12px;color:var(--muted)}
+.dnote{margin:12px 16px 0}
+.ghead{cursor:pointer;user-select:none}
+tr.ghead td{background:#101a26;font-size:13px;padding:7px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+tr.ghead:hover td{background:#16202c}
+div.ghead{display:flex;align-items:center;gap:8px;padding:14px 16px 0;font-size:14px}
+div.ghead + .cards{padding-top:10px}
+.ghead .twisty{display:inline-block;width:14px;color:var(--muted);font-size:11px}
+.ghead .dot{display:inline-block;width:9px;height:9px;border-radius:50%}
+#btn-refresh{font-size:16px;line-height:1;padding:4px 10px}
+#btn-refresh span{display:inline-block}
+#btn-refresh.spin span{animation:zspin .8s linear infinite}
+#btn-refresh.alert{border-color:var(--bad);color:#fca5a5}
+@keyframes zspin{to{transform:rotate(360deg)}}
+body.kiosk #btn-refresh{display:none}
+#chip{cursor:pointer}#chip:hover{border-color:var(--accent)}
+.cta{position:fixed;top:64px;left:50%;transform:translateX(-50%);z-index:15;display:flex;align-items:center;gap:10px;background:#0b1626f2;border:1px solid #1e4a7a;border-radius:999px;padding:5px 6px 5px 16px;font-size:13px;box-shadow:0 4px 18px #0009;white-space:nowrap}
+body.kiosk .cta{display:none}
+#conn{position:fixed;inset:0;z-index:60;background:#05080ccc;display:flex;align-items:center;justify-content:center;padding:16px}
+#conn .dlg{background:var(--panel);border:1px solid var(--line);border-radius:12px;width:min(980px,100%);max-height:calc(100vh - 32px);display:flex;flex-direction:column;box-shadow:0 20px 60px #000a}
+#conn .dlg-h{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;border-bottom:1px solid var(--line)}
+#conn .dlg-b{display:grid;grid-template-columns:250px 1fr;min-height:0;overflow:hidden;flex:1}
+#conn .plist{border-right:1px solid var(--line);overflow-y:auto;padding:10px}
+.pitem{display:block;width:100%;text-align:left;border:1px solid transparent;background:transparent;padding:8px 10px;border-radius:8px;margin-bottom:3px}
+.pitem:hover{background:var(--panel2);border-color:transparent}
+.pitem.on{background:#16263a;border-color:#244a73}
+.pitem small{display:block;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+.pitem .use{float:right;font-size:11px;color:#86efac}
+#conn .pform{overflow-y:auto;padding:14px 20px 20px}
+#conn .acts{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0 4px}
+.box{border-radius:8px;padding:10px 12px;margin:10px 0;font-size:13px;line-height:1.5}
+.box.okb{background:#0c2417;border:1px solid #14532d;color:#bbf7d0}
+.box.badb{background:#2a1214;border:1px solid #7f1d1d;color:#fecaca}
+.box.warnb{background:#2b2108;border:1px solid #6b5416;color:#fde68a}
+.box.infob{background:#0e1b2b;border:1px solid #1e3a5f;color:#bcd6f5}
+.box pre{margin:6px 0 10px;padding:8px 10px;background:#05080c;border:1px solid var(--line);border-radius:6px;overflow:auto;font-size:12px;color:#d1d9e2;white-space:pre;user-select:all}
+.box ol{margin:6px 0 0;padding-left:20px}.box li{margin:6px 0}
+.samples{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+.samples span{background:#0b0f14;border:1px solid var(--line);border-radius:999px;padding:2px 10px;font-size:12px;color:var(--text);display:inline-flex;align-items:center}
+.radios{display:flex;gap:18px;margin:4px 0 2px;flex-wrap:wrap}.radios label{cursor:pointer}
+.radios input{width:auto;vertical-align:middle}
+.inl{display:flex;align-items:flex-start;gap:8px;margin:8px 0;cursor:pointer}.inl input{flex:none;width:auto;margin-top:3px}
+.pform h3{margin:0 0 8px}
+@media(max-width:760px){#conn .dlg-b{grid-template-columns:1fr;overflow-y:auto}#conn .plist{border-right:0;border-bottom:1px solid var(--line);max-height:34vh}#conn .pform{overflow:visible}}
+</style>
+</head>
+<body>
+<div id="wrap">
+  <header>
+    <span class="logo">&#9670; ChannelView</span>
+    <span class="badge" id="demo" hidden>DEMO DATA</span>
+    <nav id="tabs"></nav>
+    <div id="pl" hidden>
+      <select id="pl-select"></select>
+      <button id="pl-prev" title="Previous (&larr;)">&#9198;</button>
+      <button id="pl-play" title="Play / pause (space)">&#9654;</button>
+      <button id="pl-next" title="Next (&rarr;)">&#9197;</button>
+      <div id="pl-bar"><div id="pl-fill"></div></div>
+    </div>
+    <label class="hsel" id="range-wrap" title="Time range of the in / out traffic graph that shows when you hover a link" hidden><span>Graph</span><select id="range-select"></select></label>
+    <label class="hsel" title="How often the data is refreshed, and how often Zabbix is polled for it"><span>Refresh</span><select id="refresh-select"></select></label>
+    <span class="chip" id="chip" role="button" tabindex="0" title="Connections to Zabbix (C)">connecting&hellip;</span>
+    <button id="btn-refresh" title="Refresh now: reconnect to Zabbix and reload the data (R)" aria-label="Refresh"><span>&#x21BB;</span></button>
+    <span class="chip" id="viewonly" hidden>view only</span>
+    <button id="btn-edit" hidden>Edit</button>
+    <button id="btn-kiosk" title="Kiosk mode (K)">Kiosk</button>
+    <button id="btn-full" title="Fullscreen (F)">&#x26F6;</button>
+  </header>
+  <div id="main"></div>
+  <aside id="drawer" hidden></aside>
+</div>
+<div id="hud"><button id="hud-back" type="button" title="Leave kiosk mode (Esc)">← Back</button><span id="hud-text"></span></div>
+<div id="tip" hidden></div>
+<div id="conn" hidden></div>
+<div id="mdl" hidden></div>
+<div id="cta" class="cta" hidden></div>
+<script>
+/* ===== Standalone backend ============================================================
+   This replaces the Python server when the dashboard runs as a single HTML file.
+   The page talks to /api/* with fetch(); here those calls are answered inside the browser:
+     - "Demo data": a simulated Cisco network (8 hosts, 2 proxies, 10 links)
+     - saved connections: the browser calls the Zabbix API directly (JSON-RPC over fetch).
+       This needs Zabbix's web server to allow it (CORS), or this file served from Zabbix itself.
+   Connections and layouts are kept in this browser's localStorage.
+   ================================================================================== */
+(() => {
+  "use strict";
+  const realFetch = window.fetch ? window.fetch.bind(window) : null;   // the Zabbix client must bypass the /api/* interception below
+  const DOWN_STATES = new Set([2, 6, 7]);          // ifOperStatus: down, notPresent, lowerLayerDown
+  const STALE_SECONDS = 300, MIN_SEVERITY = 2, POLL_MS = 30000, LIST_TTL_MS = 60000, RETRY_MS = 10000;
+  const MAX_HOSTS = 5000;                        // safety cap for "Show all monitored hosts" (the page says so if it is ever reached)
+  const HOST_BATCH = 100, ITEM_BATCH = 40;       // hosts per host.get / trigger.get request, per item.get request
+  const ITEM_LIMIT = 50000, TRIG_LIMIT = 5000;   // a reply this big is treated as cut off: the batch is split and asked again
+  const MAX_PARALLEL = 6;                        // requests to Zabbix in flight at once
+  const GRAPH_DEFAULT = 60, GRAPH_POINTS = 200, GRAPH_STEP = 30, GRAPH_CACHE_MS = 15000, HIST_LIMIT = 50000, TREND_LIMIT = 50000;    // the link graph: default range (minutes), points drawn, demo sample spacing, cache time, history / trend rows asked for
+  const GRAPH_RANGES = [5, 10, 30, 60, 180, 360, 720, 1440, 10080, 20160, 43200], TREND_FROM = 1440;      // the time ranges the header offers (minutes); beyond TREND_FROM minutes the graph is drawn from hourly trends
+  const REFRESH_CHOICES = [5, 10, 30, 60, 300, 900];      // the data refresh intervals the header offers (seconds)
+  let pollMs = POLL_MS;                          // how long a Zabbix poll stays fresh: the refresh interval the page picked
+  const gcache = new Map();                      // link graphs asked for lately (see linkGraph)
+  const ID_RX = /^[A-Za-z0-9_-]{1,40}$/;
+  const MATCH_DEFAULTS = { in_key: "net.if.in[", out_key: "net.if.out[", status_key: "net.if.status[", speed_key: "net.if.speed[",
+    tag_name: "interface", alias_tag: "description", name_regex: "^Interface (?P<ifname>[^(:]+?)(?:\\((?P<alias>.*?)\\))?: " };
+
+  // ---------------------------------------------------------------- browser storage (falls back to memory)
+  const MEM = {};
+  const mkStore = area => ({
+    get: k => { try { const v = window[area].getItem(k); return v === null ? (MEM[area + k] ?? null) : v; } catch (e) { return MEM[area + k] ?? null; } },
+    set: (k, v) => { MEM[area + k] = v; try { window[area].setItem(k, v); } catch (e) { /* blocked: keep in memory */ } },
+    del: k => { delete MEM[area + k]; try { window[area].removeItem(k); } catch (e) { /* ignore */ } },
+  });
+  const ls = mkStore("localStorage"), ss = mkStore("sessionStorage");
+
+  // ================================================================ Zabbix client (browser -> Zabbix JSON-RPC)
+  class ZbxError extends Error { constructor(msg, kind = "api", auth = false) { super(msg); this.kind = kind; this.auth = auth; } }
+  const HINTS = {
+    url: "Check the address. Enter the Zabbix web address or the API endpoint, e.g. https://zabbix.example.com/api_jsonrpc.php",
+    network: "The browser could not connect. Check the host name or IP, the port, and your firewall or VPN. With an https:// address and a self-signed certificate, open the Zabbix address in a new tab once, accept the certificate warning, then test again.",
+    cors: "Zabbix is reachable, but its web server does not allow this page to call it (CORS), so the browser blocked the request. Pick one of the options below.",
+    mixed: "This page was opened over https:// but the Zabbix address is http://. Browsers block that. Use an https:// Zabbix address, or open this page from a file or an http:// address.",
+    auth: "Zabbix rejected the credentials. For a token: Users > API tokens, and the user's role must allow API access. For a username/password: check the account is enabled and not temporarily blocked.",
+    http: "The web server answered with an error. Make sure the address points at your Zabbix frontend (api_jsonrpc.php).",
+    api: "Zabbix returned an API error - see the message above.",
+  };
+  function apiUrl(raw) {
+    let u = String(raw || "").trim().replace(/\/+$/, "");
+    if (!u) throw new ZbxError("Enter the Zabbix address", "url");
+    if (!/^https?:\/\//i.test(u)) {
+      // a relative address (api_jsonrpc.php) works when this file is served by the Zabbix web server itself
+      if (/^https?:$/.test(location.protocol) && !/^[a-z][a-z0-9+.-]*:/i.test(u)) u = new URL(u, location.href).href.replace(/\/+$/, "");
+      else throw new ZbxError("The address must start with http:// or https://", "url");
+    }
+    return /\.php$/i.test(u) ? u : u + "/api_jsonrpc.php";
+  }
+  async function diagnose(url, e) {
+    if (e && e.name === "AbortError") return new ZbxError("Timed out waiting for Zabbix (" + url + ")", "network");
+    if (location.protocol === "https:" && /^http:/i.test(url)) return new ZbxError("The browser blocked an http:// request from an https:// page", "mixed");
+    // A no-cors request succeeds whenever the server is reachable, even if CORS forbids reading the answer:
+    // reachable + the real request failed  =>  CORS.   unreachable  =>  network / certificate.
+    try { await realFetch(url, { method: "GET", mode: "no-cors", credentials: "omit", cache: "no-store" }); }
+    catch (e2) { return new ZbxError("Cannot reach Zabbix at " + url + (e && e.message ? " (" + e.message + ")" : ""), "network"); }
+    return new ZbxError("The browser blocked the request to " + url + " (CORS)", "cors");
+  }
+  class ZbxClient {
+    constructor(url, auth, secret, user, timeoutMs = 20000) {
+      this.url = apiUrl(url); this.timeout = timeoutMs; this.id = 0; this.loginP = null; this.active = 0; this.waiters = [];
+      this.token = auth === "token" ? secret : ""; this.user = auth === "password" ? (user || "") : ""; this.password = auth === "password" ? secret : "";
+    }
+    async post(method, params, auth = true) {
+      const headers = { "Content-Type": "application/json-rpc" };
+      if (auth && this.token) headers.Authorization = "Bearer " + this.token;
+      if (this.active >= MAX_PARALLEL) await new Promise(r => this.waiters.push(r));      // a big inventory means many batched requests: keep a few in flight, not hundreds
+      this.active++;
+      let res;
+      try {
+        const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), this.timeout);
+        try { res = await realFetch(this.url, { method: "POST", headers, body: JSON.stringify({ jsonrpc: "2.0", method, params, id: ++this.id }), signal: ctl.signal, credentials: "omit", cache: "no-store" }); }
+        catch (e) { throw await diagnose(this.url, e); }
+        finally { clearTimeout(timer); }
+      } finally { this.active--; const w = this.waiters.shift(); if (w) w(); }
+      if (!res.ok) throw new ZbxError("HTTP " + res.status + " from Zabbix (" + this.url + ")", res.status === 404 ? "url" : "http");
+      let data;
+      try { data = await res.json(); } catch (e) { throw new ZbxError("Zabbix did not return JSON - check the address", "url"); }
+      if (data && data.error) {
+        const er = data.error, text = ((er.message || "error") + ": " + (er.data || "")).replace(/^[: ]+|[: ]+$/g, ""), low = text.toLowerCase();
+        const relogin = low.includes("re-login") || low.includes("not authori") || low.includes("session");
+        const badLogin = method === "user.login" || low.includes("permission") || low.includes("incorrect user");
+        throw new ZbxError(method + ": " + text, (relogin || badLogin) ? "auth" : "api", relogin);
+      }
+      return data ? data.result : undefined;
+    }
+    async login() {
+      if (!this.loginP) this.loginP = this.post("user.login", { username: this.user, password: this.password }, false).then(t => { this.token = t; }).finally(() => { this.loginP = null; });
+      return this.loginP;
+    }
+    async ready() { if (!this.token && this.user) await this.login(); }
+    async call(method, params = {}) {
+      await this.ready();
+      try { return await this.post(method, params); }
+      catch (e) { if (e.auth && this.user) { this.token = ""; await this.login(); return this.post(method, params); } throw e; }
+    }
+    version() { return this.post("apiinfo.version", {}, false); }    // must be called WITHOUT auth in Zabbix 7.0
+  }
+
+  // ================================================================ data sources (all async, same interface)
+  const natCmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
+  const makeNameRx = src => new RegExp("^(?:" + String(src).replace(/\(\?P</g, "(?<") + ")");   // python-style (?P<x>) -> JS (?<x>), anchored like re.match
+
+  class LiveSource {
+    constructor(profile, secret, timeoutMs) {
+      this.m = Object.assign({}, MATCH_DEFAULTS);
+      for (const [k, v] of Object.entries(profile.match || {})) if (k in MATCH_DEFAULTS && typeof v === "string" && v.trim()) this.m[k] = v;
+      this.nameRx = makeNameRx(this.m.name_regex);
+      this.zbx = new ZbxClient(profile.url, profile.auth, secret, profile.username, timeoutMs);
+    }
+    version() { return this.zbx.version(); }
+    async searchHosts(q) {
+      const rows = await this.zbx.call("host.get", { output: ["hostid", "name"], search: { name: q, host: q }, searchByAny: true, monitored_hosts: true, sortfield: "name", limit: 50 });
+      return rows.map(r => ({ id: r.hostid, name: r.name }));
+    }
+    async searchGroups(q) {
+      const rows = await this.zbx.call("hostgroup.get", { output: ["name"], search: { name: q }, sortfield: "name", limit: 50 });
+      return rows.map(r => ({ id: r.name, name: r.name }));
+    }
+    async groupHostIds(name) {
+      const groups = await this.zbx.call("hostgroup.get", { output: ["groupid"], filter: { name: [name] } });
+      if (!groups.length) return [];
+      const hosts = await this.zbx.call("host.get", { output: ["hostid"], monitored_hosts: true, groupids: groups.map(g => g.groupid) });
+      return hosts.map(h => h.hostid);
+    }
+    async allHostIds(cap) {      // every monitored host (by name) -> { ids, cut }: cut = there are more than `cap` of them
+      cap = Math.trunc(cap);
+      const rows = await this.zbx.call("host.get", { output: ["hostid"], monitored_hosts: true, sortfield: "name", limit: cap + 1 }), ids = rows.map(r => r.hostid);
+      return { ids: ids.slice(0, cap), cut: ids.length > cap };
+    }
+    async interfacesOf(hostid) {
+      const by = this._interfaces(await this._items([hostid])), rows = by[hostid] || {};
+      return Object.entries(rows).sort((a, b) => natCmp(a[0], b[0])).map(([name, r]) => ({ name, alias: r.alias, oper: r.oper, speed_bps: r.speed_bps }));
+    }
+    async _batched(method, ids, size, make, limit) {      // ask in batches of `size` hosts; a batch whose reply reaches `limit` may be cut off, so it is split and asked again
+      const ask = async chunk => {
+        const rows = await this.zbx.call(method, make(chunk));
+        if (limit && rows.length >= limit && chunk.length > 1) { const h = chunk.length >> 1; return (await Promise.all([ask(chunk.slice(0, h)), ask(chunk.slice(h))])).flat(); }
+        return rows;
+      };
+      const chunks = []; for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+      return (await Promise.all(chunks.map(ask))).flat();
+    }
+    _items(hostids) {
+      const m = this.m;
+      return this._batched("item.get", hostids, ITEM_BATCH, ids => ({ output: ["itemid", "hostid", "name", "key_", "lastvalue", "lastclock", "units", "value_type"], hostids: ids, monitored: true,
+        search: { key_: [m.in_key, m.out_key, m.status_key, m.speed_key] }, searchByAny: true, startSearch: true, selectTags: ["tag", "value"], limit: ITEM_LIMIT }), ITEM_LIMIT);
+    }
+    _kind(key) {
+      const m = this.m;
+      for (const [kind, pref] of [["in", m.in_key], ["out", m.out_key], ["status", m.status_key], ["speed", m.speed_key]]) if (key.startsWith(pref)) return kind;
+      return null;
+    }
+    _ifname(it) {
+      const tags = {}; for (const t of it.tags || []) tags[t.tag] = t.value;
+      if (tags[this.m.tag_name]) return [tags[this.m.tag_name], tags[this.m.alias_tag] || ""];
+      const mm = this.nameRx.exec(it.name || "");
+      if (mm && mm.groups && mm.groups.ifname) return [mm.groups.ifname.trim(), mm.groups.alias || ""];
+      const mi = /\.(\d+)\]$/.exec(it.key_);
+      return [mi ? "idx:" + mi[1] : it.key_, ""];
+    }
+    static _value(it, kind) {
+      if (it.lastvalue == null || String(it.lastvalue).trim() === "") return null;
+      let v = Number(it.lastvalue);
+      if (!Number.isFinite(v)) return null;
+      const units = String(it.units || "").trim();
+      if ((kind === "in" || kind === "out") && (units === "Bps" || units === "B/s")) v *= 8;          // bytes/s -> bits/s (case matters: "bps" is already bits)
+      if (kind === "speed") v *= { kbps: 1e3, mbps: 1e6, gbps: 1e9 }[units.toLowerCase()] || 1;
+      return v;
+    }
+    _interfaces(items) {
+      const out = {};
+      for (const it of items) {
+        const kind = this._kind(it.key_);
+        if (!kind) continue;
+        const [name, alias] = this._ifname(it);
+        const perHost = out[it.hostid] || (out[it.hostid] = Object.create(null));
+        const rec = perHost[name] || (perHost[name] = { alias: "", oper: null, in_bps: null, out_bps: null, speed_bps: null, clock: 0, ref: {} });
+        if (alias && !rec.alias) rec.alias = alias;
+        const v = LiveSource._value(it, kind);
+        if (kind === "status") rec.oper = v != null ? Math.trunc(v) : null; else rec[{ in: "in_bps", out: "out_bps", speed: "speed_bps" }[kind]] = v;
+        if (kind === "in" || kind === "out") { const u = String(it.units || "").trim(); rec.ref[kind] = { id: String(it.itemid), vt: parseInt(it.value_type, 10) || 0, mul: (u === "Bps" || u === "B/s") ? 8 : 1 }; }     // where the in / out history of this interface lives (the link graph reads it with history.get)
+        rec.clock = Math.max(rec.clock, parseInt(it.lastclock || 0, 10) || 0);
+      }
+      return out;
+    }
+    async series(refs, t0, t1, trends) {      // history of the items `refs` point at -> one [[clock, bits per second], ...] list per ref (empty when a ref is null or its item does not hold numbers); trends: hourly averages (trend.get), an item that keeps no trends falls back to its history
+      const want = new Map();
+      for (const r of refs) if (r && (r.vt === 0 || r.vt === 3)) want.set(r.id, r);      // 0 = float, 3 = unsigned integer: the two types a traffic item can have
+      const got = new Map([...want.keys()].map(i => [i, []]));
+      let missing = [...want.keys()];
+      if (trends && want.size) {
+        const rows = await this.zbx.call("trend.get", { output: ["itemid", "clock", "value_avg"], itemids: [...want.keys()], time_from: Math.trunc(t0), time_till: Math.trunc(t1), limit: TREND_LIMIT });
+        for (const row of rows) {
+          const r = want.get(row.itemid);
+          if (!r || row.value_avg == null || String(row.value_avg).trim() === "") continue;
+          const v = Number(row.value_avg) * r.mul, c = parseInt(row.clock, 10) + 1800;      // an hour's average belongs in the middle of it
+          if (Number.isFinite(v) && Number.isFinite(c)) got.get(row.itemid).push([c, v]);
+        }
+        missing = missing.filter(i => !got.get(i).length);      // no trends kept for these: read their history instead
+      }
+      for (const vt of [0, 3]) {
+        const ids = missing.filter(i => want.get(i).vt === vt);
+        if (!ids.length) continue;
+        const rows = await this.zbx.call("history.get", { output: ["itemid", "clock", "value"], history: vt, itemids: ids, time_from: Math.trunc(t0), time_till: Math.trunc(t1), sortfield: "clock", sortorder: "DESC", limit: HIST_LIMIT });
+        for (const row of rows) {
+          const r = want.get(row.itemid);
+          if (!r || row.value == null || String(row.value).trim() === "") continue;
+          const v = Number(row.value) * r.mul, c = parseInt(row.clock, 10);
+          if (Number.isFinite(v) && Number.isFinite(c)) got.get(row.itemid).push([c, v]);
+        }
+      }
+      return refs.map(r => (r && got.has(r.id)) ? got.get(r.id).sort((a, b) => a[0] - b[0] || a[1] - b[1]) : []);
+    }
+    static _hostState(h) {
+      if (String(h.status) === "1") return "disabled";
+      const ifs = h.interfaces || [], snmp = ifs.filter(i => String(i.type) === "2"), use = snmp.length ? snmp : ifs;
+      const av = use.map(i => String(i.available));
+      return av.includes("2") ? "down" : av.includes("1") ? "up" : "unknown";
+    }
+    static _hostIp(h) {     // address Zabbix polls the host on: main SNMP interface, else main / first
+      const ifs = h.interfaces || [], s = String;
+      const pick = [ifs.filter(i => s(i.type) === "2" && s(i.main) === "1"), ifs.filter(i => s(i.type) === "2"), ifs.filter(i => s(i.main) === "1"), ifs].find(a => a.length);
+      if (!pick) return "";
+      const i = pick[0], first = s(i.useip) === "0" ? i.dns : i.ip, second = s(i.useip) === "0" ? i.ip : i.dns;
+      return String(first || second || "");
+    }
+    static _inventory(h) {     // [operating system, device model] from the host inventory; blank when inventory is off or the field is empty
+      const inv = (h.inventory && typeof h.inventory === "object" && !Array.isArray(h.inventory)) ? h.inventory : {};      // Zabbix sends [] for a host without inventory
+      const pick = (...keys) => { for (const k of keys) { const v = String(inv[k] == null ? "" : inv[k]).split(/\s+/).filter(Boolean).join(" "); if (v) return v.slice(0, 80); } return ""; };
+      return [pick("os_short", "os", "os_full"), pick("model", "hardware")];
+    }
+    async snapshot(hostids, minSev) {
+      const snap = { ts: Date.now() / 1000, hosts: {}, interfaces: {} };
+      const ids = [...new Set(hostids)].sort();
+      if (!ids.length) return snap;
+      const z = this.zbx;
+      await z.ready();     // log in once up front so the parallel calls below do not race each other
+      const [hosts, proxyRows, trig, items] = await Promise.all([
+        this._batched("host.get", ids, HOST_BATCH, c => ({ output: ["hostid", "name", "status", "proxyid"], hostids: c, selectInterfaces: ["type", "available", "main", "ip", "dns", "useip"], selectInventory: ["os", "os_short", "os_full", "model", "hardware"] })),
+        z.call("proxy.get", { output: ["proxyid", "name"] }).catch(e => { if (e instanceof ZbxError) return []; throw e; }),
+        this._batched("trigger.get", ids, HOST_BATCH, c => ({ output: ["triggerid", "description", "priority"], hostids: c, monitored: true, only_true: true, skipDependent: true, min_severity: Math.trunc(minSev),
+          selectHosts: ["hostid"], expandDescription: true, sortfield: "priority", sortorder: "DESC", limit: TRIG_LIMIT }), TRIG_LIMIT),
+        this._items(ids),
+      ]);
+      const proxies = {}; for (const p of proxyRows) proxies[p.proxyid] = p.name;
+      const per = {}, seenT = new Set();
+      for (const t of trig) {
+        if (seenT.has(t.triggerid)) continue;      // a trigger that spans hosts of two batches comes back from both: count it once
+        seenT.add(t.triggerid);
+        for (const h of t.hosts || []) (per[h.hostid] || (per[h.hostid] = [])).push({ name: t.description, severity: parseInt(t.priority, 10) });
+      }
+      for (const h of hosts) {
+        const probs = (per[h.hostid] || []).slice().sort((a, b) => b.severity - a.severity);
+        snap.hosts[h.hostid] = { id: h.hostid, name: h.name, status: LiveSource._hostState(h), ip: LiveSource._hostIp(h), os: LiveSource._inventory(h)[0], model: LiveSource._inventory(h)[1], proxy: (h.proxyid != null && h.proxyid !== "0") ? (proxies[h.proxyid] || "") : "",
+          severity: probs.length ? probs[0].severity : 0, problems: probs.length, top: probs.slice(0, 5) };
+      }
+      snap.interfaces = this._interfaces(items);
+      return snap;
+    }
+    async probe() {
+      const z = this.zbx, m = this.m;
+      const version = await z.version();
+      const hosts = parseInt(await z.call("host.get", { countOutput: true, monitored_hosts: true }), 10);
+      let proxies = null;
+      try { proxies = parseInt(await z.call("proxy.get", { countOutput: true }), 10); } catch (e) { if (!(e instanceof ZbxError)) throw e; }
+      const items = parseInt(await z.call("item.get", { countOutput: true, monitored: true, search: { key_: [m.in_key, m.out_key] }, searchByAny: true, startSearch: true }), 10);
+      const rows = await z.call("host.get", { output: ["hostid", "name", "status", "proxyid"], monitored_hosts: true, sortfield: "name", limit: 8, selectInterfaces: ["type", "available", "main"] });
+      return { version, hosts, proxies, interface_items: items, sample: rows.map(r => ({ id: r.hostid, name: r.name, status: LiveSource._hostState(r) })) };
+    }
+  }
+
+  // ---------------------------------------------------------------- simulated network (the "Demo data" connection)
+  const DEMO_HOSTS = [   // id, name, proxy, group, role
+    ["10001", "core-c9500-1", "Proxy-A", "Cisco core", "core"], ["10002", "core-c9500-2", "Proxy-A", "Cisco core", "core"],
+    ["10003", "pe-c8300-1", "Proxy-A", "Cisco WAN routers", "router"], ["10004", "pe-c8300-2", "Proxy-B", "Cisco WAN routers", "router"],
+    ["10005", "ce-c8200l-1", "Proxy-B", "Cisco edge", "edge"], ["10006", "ce-c8200l-2", "Proxy-B", "Cisco edge", "edge"],
+    ["10007", "ce-c8200l-3", "Proxy-B", "Cisco edge", "edge"], ["10008", "dist-c9300-stack", "Proxy-A", "Cisco core", "core"],
+  ];
+  const DEMO_INFO = {   // host inventory the demo "reports": id -> [operating system, device model]; ce-c8200l-2 has none, to show the "unknown" group
+    10001: ["Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"], 10002: ["Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"], 10003: ["Cisco IOS XE 17.9.4", "C8300-2N2S-4T2X"], 10004: ["Cisco IOS XE 17.6.5", "C8300-2N2S-4T2X"],
+    10005: ["Cisco IOS XE 17.9.4", "C8200L-1N-4T"], 10006: ["", ""], 10007: ["Cisco IOS XE 17.6.5", "C8200L-1N-4T"], 10008: ["Cisco IOS XE 17.6.5", "Catalyst C9300-48P"],
+  };
+  const DEMO_IFACES = {
+    core: [1, 2, 3, 4, 5, 6].map(i => ["Te1/0/" + i, 10e9]),
+    router: [["Gi0/0/0", 1e9], ["Gi0/0/1", 1e9], ["Te0/0/2", 10e9], ["Te0/0/3", 10e9]],
+    edge: [["Gi0/0/0", 1e9], ["Gi0/0/1", 1e9], ["Gi0/1/0", 1e9]],
+  };
+  const DEMO_LINKS = [   // id, hostA, ifA, hostB, ifB, name
+    ["L1", "10001", "Te1/0/1", "10002", "Te1/0/1", "Core interconnect"], ["L2", "10001", "Te1/0/2", "10003", "Te0/0/2", "Core1 - PE1"],
+    ["L3", "10002", "Te1/0/2", "10004", "Te0/0/2", "Core2 - PE2"], ["L4", "10003", "Te0/0/3", "10004", "Te0/0/3", "PE1 - PE2"],
+    ["L5", "10003", "Gi0/0/0", "10005", "Gi0/0/0", "Branch 1"], ["L6", "10003", "Gi0/0/1", "10006", "Gi0/0/0", "Branch 2 (primary)"],
+    ["L7", "10004", "Gi0/0/0", "10007", "Gi0/0/0", "Branch 3"], ["L8", "10004", "Gi0/0/1", "10006", "Gi0/0/1", "Branch 2 (backup)"],
+    ["L9", "10001", "Te1/0/3", "10008", "Te1/0/1", "Core1 - Dist"], ["L10", "10002", "Te1/0/3", "10008", "Te1/0/2", "Core2 - Dist"],
+  ];
+  const DEMO_ACCESS = 120;     // extra access switches (acc-sw-001 ..) that only the "All devices" tab lists - so there is something to page through
+  const accessInfo = i => i % 11 === 0 ? ["", ""] : [i % 3 ? "Cisco IOS XE 17.6.5" : "Cisco IOS 15.2(7)E4", i % 2 ? "C9200-48P" : "C2960X-48FPD-L"];     // [os, model]; every 11th has none
+  const HOT = new Set(["L6"]);    // always busy: shows the red end of the colour scale
+  const FLAP = new Set(["L7"]);   // goes down for 45 s every 3 minutes
+  const HOSTS = {}, PEER = {};
+  for (const [id, name, proxy, group, role] of DEMO_HOSTS) HOSTS[id] = { name, proxy, group, ifs: Object.fromEntries(DEMO_IFACES[role].map(([n, s]) => [n, { speed: s, alias: "" }])) };
+  for (let i = 1; i <= DEMO_ACCESS; i++) HOSTS[String(10100 + i)] = { name: "acc-sw-" + String(i).padStart(3, "0"), proxy: i % 2 ? "Proxy-A" : "Proxy-B", group: "Cisco access",
+    ifs: Object.fromEntries([1, 2, 3, 4].map(k => ["Gi1/0/" + k, { speed: 1e9, alias: "user port " + k }])) };
+  for (const [lid, ha, ia, hb, ib] of DEMO_LINKS) {
+    PEER[ha + "|" + ia] = [lid, "a"]; PEER[hb + "|" + ib] = [lid, "b"];
+    HOSTS[ha].ifs[ia].alias = "to " + HOSTS[hb].name; HOSTS[hb].ifs[ib].alias = "to " + HOSTS[ha].name;
+  }
+  const CRC_TABLE = (() => { const t = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; t[n] = c >>> 0; } return t; })();
+  const crc32 = s => { let c = 0xFFFFFFFF; for (const b of new TextEncoder().encode(s)) c = CRC_TABLE[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+  function util(key, dir, t) {
+    const h = crc32(key), phase = (h % 628) / 100, base = 0.10 + (h % 45) / 100;
+    const wave = 0.5 + 0.5 * Math.sin(t / 80 + phase + (dir === "ba" ? 1.7 : 0));
+    const noise = ((crc32(key + ":" + dir + ":" + Math.floor(t / 6)) % 1000) / 1000 - 0.5) * 0.05;
+    const day = 0.85 + 0.15 * Math.sin((t - 14400) * (2 * Math.PI / 86400));      // busier in the afternoon: the daily shape that 7 / 14 / 30 day graphs show
+    let u = base * (0.45 + 0.9 * wave) * day + noise;
+    if (HOT.has(key)) u = 0.78 + 0.18 * wave;
+    return Math.max(0, Math.min(0.99, u));
+  }
+  const flapping = (lid, t) => FLAP.has(lid) && Math.floor(t / 45) % 4 === 2;
+  function ifAt(hid, name, t) {      // [bits/s in, bits/s out, ifOperStatus] of one simulated interface at time t
+    const speed = HOSTS[hid].ifs[name].speed, acc = parseInt(hid, 10) > 10100 ? parseInt(hid, 10) - 10100 : 0, lk = PEER[hid + "|" + name];
+    if (acc) {
+      const port = parseInt(name.slice(-1), 10);
+      if (acc % 17 === 0 || (acc + port) % 19 === 0) return [0, 0, 2];      // the switch itself is down / this port is down
+      return [util(hid + "/" + name, "ba", t) * speed, util(hid + "/" + name, "ab", t) * speed, 1];
+    }
+    if (lk) {
+      const [lid, side] = lk;
+      if (flapping(lid, t)) return [0, 0, 2];
+      const ab = util(lid, "ab", t) * speed, ba = util(lid, "ba", t) * speed;
+      return side === "a" ? [ba, ab, 1] : [ab, ba, 1];
+    }
+    return [util(hid + "/" + name, "ba", t) * speed * 0.06, util(hid + "/" + name, "ab", t) * speed * 0.06, 1];
+  }
+  function demoSnapshot(hostids, minSev) {
+    const t = Date.now() / 1000, snap = { ts: t, hosts: {}, interfaces: {} };
+    for (const hid of [...new Set(hostids)].sort()) {
+      const h = HOSTS[hid];
+      if (!h) continue;
+      let probs = [];
+      if (hid === "10007" && flapping("L7", t)) probs.push({ name: "Interface Gi0/0/0(to pe-c8300-2): Link down", severity: 4 });
+      if (hid === "10002" && Math.floor(t / 120) % 3 === 1) probs.push({ name: "High CPU utilization (over 90% for 5m)", severity: 3 });
+      if (hid === "10005" && Math.floor(t / 200) % 2 === 0) probs.push({ name: "High memory utilization (>90% for 5m)", severity: 2 });
+      const acc = parseInt(hid, 10) > 10100 ? parseInt(hid, 10) - 10100 : 0;      // access switch number (0 = one of the 8 core / WAN devices)
+      let status = "up", ip = "10.0.0." + (parseInt(hid, 10) - 10000), [os_, model] = DEMO_INFO[hid] || ["", ""];
+      if (acc) {
+        status = acc % 17 === 0 ? "down" : "up"; ip = "10.1." + (Math.floor(acc / 40) + 1) + "." + (acc % 40 + 1); [os_, model] = accessInfo(acc);
+        if (status === "down") probs.push({ name: "SNMP agent is not available for 5m", severity: 4 });
+        if (status === "up" && acc % 9 === 0) probs.push({ name: "High memory utilization (>90% for 5m)", severity: 2 });
+        if (status === "up" && acc % 23 === 0) probs.push({ name: "High CPU utilization (over 90% for 5m)", severity: 3 });
+      }
+      probs = probs.filter(p => p.severity >= minSev);
+      snap.hosts[hid] = { id: hid, name: h.name, status, ip, os: os_, model, proxy: h.proxy, severity: Math.max(0, ...probs.map(p => p.severity)), problems: probs.length, top: probs };
+      const ifs = {};
+      for (const [name, meta] of Object.entries(h.ifs)) {
+        const [inn, out, oper] = ifAt(hid, name, t);
+        ifs[name] = { alias: meta.alias, oper, in_bps: inn, out_bps: out, speed_bps: meta.speed, clock: Math.floor(t),
+          ref: { in: { hid, if: name, dir: "in" }, out: { hid, if: name, dir: "out" } } };
+      }
+      snap.interfaces[hid] = ifs;
+    }
+    return snap;
+  }
+  const demoSource = {
+    version: async () => "7.0 (demo)",
+    searchHosts: async q => Object.entries(HOSTS).sort((a, b) => (a[1].name < b[1].name ? -1 : 1)).filter(([, h]) => h.name.toLowerCase().includes(q.toLowerCase())).slice(0, 50).map(([id, h]) => ({ id, name: h.name })),
+    searchGroups: async q => [...new Set(Object.values(HOSTS).map(h => h.group))].sort().filter(n => n.toLowerCase().includes(q.toLowerCase())).map(n => ({ id: n, name: n })),
+    groupHostIds: async name => Object.entries(HOSTS).filter(([, h]) => h.group === name).map(([id]) => id),
+    allHostIds: async cap => { const ids = Object.entries(HOSTS).sort((a, b) => (a[1].name < b[1].name ? -1 : 1)).map(([id]) => id); return { ids: ids.slice(0, Math.trunc(cap)), cut: ids.length > Math.trunc(cap) }; },
+    interfacesOf: async hid => HOSTS[hid] ? Object.entries(HOSTS[hid].ifs).sort((a, b) => natCmp(a[0], b[0])).map(([name, m]) => ({ name, alias: m.alias, oper: 1, speed_bps: m.speed })) : [],
+    snapshot: async (ids, minSev) => demoSnapshot(ids, minSev),
+    series: async (refs, t0, t1, trends) => {      // the simulated history behind the link graph: the same curves the snapshots follow, one sample every GRAPH_STEP seconds; trends: one value per hour (the average of twelve samples, dated to the middle of the hour), like Zabbix trends
+      const stamps = [];
+      if (trends) { for (let h = (Math.floor(Math.trunc(t0) / 3600) + 1) * 3600; h < Math.trunc(t1) - 3599; h += 3600) stamps.push([h + 1800, Array.from({ length: 12 }, (_, k) => h + 150 + 300 * k)]); }
+      else { for (let c = (Math.floor(Math.trunc(t0) / GRAPH_STEP) + 1) * GRAPH_STEP; c <= Math.trunc(t1); c += GRAPH_STEP) stamps.push([c, [c]]); }
+      return refs.map(r => {
+        if (!r) return [];
+        const k = r.dir === "in" ? 0 : 1;
+        return stamps.map(([c, xs]) => { let sum = 0; for (const x of xs) sum += ifAt(r.hid, r.if, x)[k]; return [c, sum / xs.length]; });
+      });
+    },
+  };
+
+  // ---------------------------------------------------------------- layouts
+  function demoLayout() {
+    const node = (id, host, x, y) => ({ id, host, hostname: HOSTS[host].name, label: "", x, y });
+    const link = (lid, na, nb) => { const l = DEMO_LINKS.find(l => l[0] === lid); return { id: lid, name: l[5], a: { node: na, if: l[2] }, b: { node: nb, if: l[4] }, bandwidth_bps: null }; };
+    const wan = { name: "Core & WAN", width: 1200, height: 600,
+      nodes: [node("n-c1", "10001", 260, 130), node("n-c2", "10002", 940, 130), node("n-d1", "10008", 600, 290), node("n-p1", "10003", 260, 450), node("n-p2", "10004", 940, 430)],
+      links: [link("L1", "n-c1", "n-c2"), link("L2", "n-c1", "n-p1"), link("L3", "n-c2", "n-p2"), link("L4", "n-p1", "n-p2"), link("L9", "n-c1", "n-d1"), link("L10", "n-c2", "n-d1")] };
+    wan.links[3].via = [{ x: 600, y: 540 }];      // shows a bent link (its bend point moved by hand): L4 is routed underneath the others
+    const br = { name: "Branches", width: 1200, height: 600,
+      nodes: [node("n-p1", "10003", 260, 130), node("n-p2", "10004", 940, 130), node("n-e1", "10005", 150, 440), node("n-e2", "10006", 600, 440), node("n-e3", "10007", 1050, 440)],
+      links: [link("L5", "n-p1", "n-e1"), link("L6", "n-p1", "n-e2"), link("L7", "n-p2", "n-e3"), link("L8", "n-p2", "n-e2")] };
+    return {
+      version: 1, maps: { "m-wan": wan, "m-br": br },
+      tabs: [
+        { id: "t-wan", name: "Core & WAN", type: "map", map: "m-wan" }, { id: "t-br", name: "Branches", type: "map", map: "m-br" },
+        { id: "t-rt", name: "Routers", type: "devices", hosts: [], hostnames: {}, groups: ["Cisco WAN routers", "Cisco edge"], ifaces: 4 },
+        { id: "t-core", name: "Core switches", type: "devices", hosts: ["10001", "10002", "10008"], hostnames: { "10001": "core-c9500-1", "10002": "core-c9500-2", "10008": "dist-c9300-stack" }, groups: [], ifaces: 4 },
+        { id: "t-all", name: "All devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, all: true, style: "list" },
+      ],
+      playlists: [{ id: "p-noc", name: "NOC wall", loop: true, items: [{ tab: "t-wan", seconds: 20 }, { tab: "t-br", seconds: 20 }, { tab: "t-rt", seconds: 15 }, { tab: "t-core", seconds: 15 }] }],
+      settings: {},
+    };
+  }
+  function liveStarterLayout() {   // first layout of a real connection: an "All devices" tab so hosts show up right away + an empty weathermap
+    return { version: 1, maps: { m1: { name: "Network", width: 1600, height: 900, nodes: [], links: [] } },
+      tabs: [{ id: "t-all", name: "All devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, all: true, style: "list" }, { id: "t1", name: "Network", type: "map", map: "m1" }],
+      playlists: [], settings: {} };
+  }
+  const MAX_VIA = 8;      // bend points per link
+  function validateLayout(d) {   // same rules as the Python server
+    const HID = /^[0-9]{1,12}$/;
+    const fail = m => { throw new Error(m); };
+    const isObj = v => v !== null && typeof v === "object" && !Array.isArray(v);
+    const sid = (v, what) => (typeof v === "string" && ID_RX.test(v)) ? v : fail("bad " + what + " id: " + JSON.stringify(v));
+    const txt = (v, n = 80) => String(v == null ? "" : v).trim().slice(0, n);
+    const num = (v, lo, hi, def) => { if (v == null || v === "") return def; const f = Number(v); return Number.isFinite(f) ? Math.max(lo, Math.min(hi, f)) : def; };
+    if (!isObj(d)) fail("layout must be an object");
+    const out = { version: 1, maps: {}, tabs: [], playlists: [], settings: {} };
+    const maps = d.maps || {};
+    if (!isObj(maps) || Object.keys(maps).length > 200) fail("too many maps");
+    for (const [mid, m] of Object.entries(maps)) {
+      sid(mid, "map"); if (!isObj(m)) fail("bad map");
+      const nodes = [], ids = new Set();
+      for (const n of (m.nodes || []).slice(0, 500)) {
+        const nid = sid(n.id, "node"), host = txt(n.host, 20);
+        if (ids.has(nid) || !HID.test(host)) fail("bad node " + nid);
+        ids.add(nid);
+        const node = { id: nid, host, hostname: txt(n.hostname, 100), label: txt(n.label, 60), x: num(n.x, -5000, 20000, 0), y: num(n.y, -5000, 20000, 0) };
+        if (n.shape === "circle" || n.shape === "triangle") node.shape = n.shape;      // default is square
+        if (n.size === "small" || n.size === "large" || n.size === "xlarge") node.size = n.size;      // default is medium
+        if (n.notify === false) node.notify = false;      // the problem count on the device is on unless this says false
+        nodes.push(node);
+      }
+      const links = [], lids = new Set();
+      for (const l of (m.links || []).slice(0, 2000)) {
+        const lid = sid(l.id, "link"), a = l.a || {}, b = l.b || {};
+        if (lids.has(lid) || !ids.has(a.node) || !ids.has(b.node)) fail("bad link " + lid);
+        lids.add(lid);
+        const link = { id: lid, name: txt(l.name), a: { node: a.node, if: txt(a.if, 100) }, b: { node: b.node, if: txt(b.if, 100) },
+          bandwidth_bps: (l.bandwidth_bps == null || l.bandwidth_bps === "") ? null : num(l.bandwidth_bps, 1, 1e13, null) };
+        const via = [];      // bend points: the line is routed through them, in order
+        for (const p of (Array.isArray(l.via) ? l.via : []).slice(0, MAX_VIA)) {
+          if (!isObj(p)) continue;
+          const x = num(p.x, -5000, 20000, null), y = num(p.y, -5000, 20000, null);
+          if (x !== null && y !== null) via.push({ x: Math.floor(x + 0.5), y: Math.floor(y + 0.5) });
+        }
+        if (via.length) link.via = via;
+        if (l.if_show === false) link.if_show = false;      // interface tags are shown unless a link hides them; if_pos fixes their side (without it: automatic)
+        if (l.if_pos === "above" || l.if_pos === "below") link.if_pos = l.if_pos;
+        links.push(link);
+      }
+      out.maps[mid] = { name: txt(m.name, 60), width: Math.trunc(num(m.width, 400, 8000, 1600)), height: Math.trunc(num(m.height, 300, 8000, 900)), nodes, links };
+      const lg = isObj(m.legend) ? m.legend : null, leg = {};      // the usage meter: vertical or horizontal (the default), and where it was dragged to (x, y: 0..100, both or neither)
+      if (lg) {
+        if (lg.dir === "v") leg.dir = "v";
+        if (typeof lg.x === "number" && typeof lg.y === "number" && Number.isFinite(lg.x) && Number.isFinite(lg.y)) {
+          leg.x = Math.floor(Math.max(0, Math.min(100, lg.x)) * 10 + 0.5) / 10; leg.y = Math.floor(Math.max(0, Math.min(100, lg.y)) * 10 + 0.5) / 10;
+        }
+      }
+      if (Object.keys(leg).length) out.maps[mid].legend = leg;
+    }
+    const tabIds = new Set();
+    for (const t of (d.tabs || []).slice(0, 200)) {
+      const tid = sid(t.id, "tab");
+      if (tabIds.has(tid) || (t.type !== "map" && t.type !== "devices")) fail("bad tab " + tid);
+      tabIds.add(tid);
+      const tab = { id: tid, name: txt(t.name, 40) || "Tab", type: t.type };
+      if (t.type === "map") {
+        if (!out.maps[t.map]) fail("tab " + tid + " points at a missing map");
+        tab.map = t.map;
+      } else {
+        const hosts = (t.hosts || []).slice(0, 300).map(h => txt(h, 20));
+        if (!hosts.every(h => HID.test(h))) fail("bad host id in devices tab");
+        const names = t.hostnames || {};
+        tab.hosts = hosts; tab.hostnames = Object.fromEntries(hosts.map(h => [h, txt(names[h], 100)]));
+        tab.groups = (t.groups || []).slice(0, 30).map(g => txt(g, 100)); tab.ifaces = Math.trunc(num(t.ifaces, 0, 12, 4));
+        tab.all = !!t.all; tab.style = t.style === "list" ? "list" : "cards";      // (older layouts also stored a "limit" of 40 here - ignored now: "all" means all)
+      }
+      out.tabs.push(tab);
+    }
+    const plIds = new Set();
+    for (const p of (d.playlists || []).slice(0, 50)) {
+      const pid = sid(p.id, "playlist");
+      if (plIds.has(pid)) fail("duplicate playlist id");
+      plIds.add(pid);
+      out.playlists.push({ id: pid, name: txt(p.name, 40) || "Playlist", loop: p.loop === undefined ? true : !!p.loop,
+        items: (p.items || []).slice(0, 100).filter(i => tabIds.has(i.tab)).map(i => ({ tab: i.tab, seconds: Math.trunc(num(i.seconds, 3, 3600, 20)) })) });
+    }
+    const scale = (d.settings || {}).scale;
+    if (Array.isArray(scale) && scale.length) {
+      const clean = scale.slice(0, 12).filter(x => Array.isArray(x) && typeof x[1] === "string" && /^#[0-9a-fA-F]{6}$/.test(x[1])).map(([t, c]) => [num(t, 0, 1000, 0), c]).sort((a, b) => a[0] - b[0]);
+      if (clean.length) out.settings.scale = clean;
+    }
+    return out;
+  }
+  const layoutKey = id => id === "demo" ? "channelview-demo-layout-v1" : "channelview-layout-v1:" + id;   // one layout per connection
+  function loadLayout(id) {
+    try { const s = ls.get(layoutKey(id)); if (s) return validateLayout(JSON.parse(s)); } catch (e) { /* corrupt or blocked: start from the sample */ }
+    return validateLayout(id === "demo" ? demoLayout() : liveStarterLayout());
+  }
+  const saveLayout = l => { layout = l; ls.set(layoutKey(conns.active), JSON.stringify(l)); };
+
+  // ---------------------------------------------------------------- saved connections
+  const CONN_KEY = "channelview-connections-v1", SECRET_KEY = "channelview-secret:";
+  let conns = { active: "demo", profiles: [] }, layout = null, source = null, sourceError = "", cache = null;
+  const randId = () => "c-" + Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
+  const str = (v, n) => String(v == null ? "" : v).trim().slice(0, n);
+  function cleanMatch(m) {
+    const out = {};
+    if (m && typeof m === "object") for (const k of Object.keys(MATCH_DEFAULTS)) if (typeof m[k] === "string" && m[k].trim()) out[k] = m[k].trim().slice(0, 300);
+    if (out.name_regex) {
+      let rx; try { rx = makeNameRx(out.name_regex); } catch (e) { throw new Error("name_regex is not a valid regular expression: " + e.message); }
+      if (!/\(\?P?<ifname>/.test(out.name_regex)) throw new Error("name_regex needs a named group (?P<ifname>...)");
+    }
+    return out;
+  }
+  function cleanProfile(d, existing) {    // submitted fields -> a clean profile; blank secrets keep the stored ones
+    if (!d || typeof d !== "object") throw new Error("bad connection");
+    const url = str(d.url, 300);
+    if (!/^https?:\/\/[^\s/]+/i.test(url) && !(/^https?:$/.test(location.protocol) && url && !/^[a-z][a-z0-9+.-]*:/i.test(url))) throw new Error("The address must start with http:// or https://");
+    const auth = d.auth === "password" ? "password" : "token", same = !!existing && existing.auth === auth;
+    let host = ""; try { host = new URL(apiUrl(url)).hostname; } catch (e) { /* name falls back below */ }
+    const p = { id: existing ? existing.id : "", name: str(d.name, 60) || host || "Zabbix", url, auth, remember: d.remember !== false,
+      username: auth === "password" ? str(d.username, 100) : "", token: "", password: "", match: cleanMatch(d.match) };
+    if (auth === "token") p.token = str(d.token, 400) || (same ? existing.token || "" : "");
+    else { if (!p.username) throw new Error("Enter the Zabbix username"); p.password = str(d.password, 400) || (same ? existing.password || "" : ""); }
+    return p;
+  }
+  const publicProfile = p => ({ id: p.id, name: p.name, url: p.url, auth: p.auth, username: p.username || "", has_secret: !!(p.auth === "token" ? p.token : p.password),
+    verify_tls: true, remember: p.remember !== false, match: Object.assign({}, p.match || {}), readonly: false });
+  function persistConns() {
+    const stripped = conns.profiles.map(p => p.remember === false ? Object.assign({}, p, { token: "", password: "" }) : p);   // not remembered: kept for this tab only
+    ls.set(CONN_KEY, JSON.stringify({ active: conns.active, profiles: stripped }));
+    for (const p of conns.profiles) if (p.remember === false) ss.set(SECRET_KEY + p.id, JSON.stringify({ token: p.token || "", password: p.password || "" }));
+  }
+  function loadConns() {
+    try {
+      const d = JSON.parse(ls.get(CONN_KEY) || "null");
+      if (d && Array.isArray(d.profiles)) {
+        conns.profiles = d.profiles.filter(p => p && ID_RX.test(p.id) && p.id !== "demo").map(p => {
+          const q = Object.assign({ remember: true, token: "", password: "", username: "", match: {} }, p);
+          if (q.remember === false) { try { const s = JSON.parse(ss.get(SECRET_KEY + q.id) || "{}"); q.token = s.token || ""; q.password = s.password || ""; } catch (e) { /* none */ } }
+          return q;
+        });
+        conns.active = String(d.active || "demo");
+      }
+    } catch (e) { /* start clean */ }
+    if (conns.active !== "demo" && !conns.profiles.some(p => p.id === conns.active)) conns.active = "demo";
+  }
+  const connName = () => conns.active === "demo" ? "Demo data" : ((conns.profiles.find(p => p.id === conns.active) || {}).name || "");
+  const connInfo = () => ({ mode: "standalone", active: conns.active, demo_available: true, profiles: conns.profiles.map(publicProfile), match_defaults: MATCH_DEFAULTS });
+  function resetCaches() { gcache.clear(); cache = { snap: null, key: "", t: 0, inflight: null, error: "", lastOk: 0, retryAt: 0, version: "", lists: {}, groupIds: {}, allIds: [], allCut: false }; }
+  function activate(id) {
+    conns.active = id; persistConns(); layout = loadLayout(id); resetCaches(); source = null; sourceError = "";
+    if (id === "demo") { source = demoSource; return; }
+    const p = conns.profiles.find(x => x.id === id), secret = p && (p.auth === "token" ? p.token : p.password);
+    if (!p) sourceError = "No connection selected.";
+    else if (!secret) sourceError = "The saved secret is not available in this browser session. Open Connections and enter it again.";
+    else { try { source = new LiveSource(p, secret); } catch (e) { sourceError = e.message; } }
+  }
+
+  // ---------------------------------------------------------------- views (same logic as the Python server)
+  const emptySnap = () => ({ ts: 0, hosts: {}, interfaces: {} });
+  function needed() {
+    const ids = new Set(), groups = new Set(); let wantAll = false;
+    for (const m of Object.values(layout.maps)) for (const n of m.nodes) ids.add(n.host);
+    for (const t of layout.tabs) if (t.type === "devices") { t.hosts.forEach(h => ids.add(h)); t.groups.forEach(g => groups.add(g)); if (t.all) wantAll = true; }
+    return { ids, groups, wantAll };
+  }
+  const listCached = async (key, loader) => {
+    const hit = cache.lists[key];
+    if (hit && conns.active !== "demo" && Date.now() - hit.t < LIST_TTL_MS) return hit.v;
+    const v = await loader(); cache.lists[key] = { t: Date.now(), v }; return v;
+  };
+  async function compute() {
+    const demo = conns.active === "demo", src = source, c = cache;
+    if (!src) return { snap: emptySnap(), groupIds: {}, allIds: [], allCut: false, error: sourceError, lastOk: 0 };
+    if (!demo && c.error && Date.now() < c.retryAt) return { snap: c.snap || emptySnap(), groupIds: c.groupIds, allIds: c.allIds, allCut: c.allCut, error: c.error, lastOk: c.lastOk };   // back off after a failure
+    const { ids, groups, wantAll } = needed();
+    try {
+      const groupIds = {};
+      for (const g of groups) groupIds[g] = await listCached("g:" + g, () => src.groupHostIds(g));
+      const all = wantAll ? await listCached("all", () => src.allHostIds(MAX_HOSTS)) : { ids: [], cut: false }, allIds = all.ids;
+      const want = new Set([...ids, ...allIds, ...Object.values(groupIds).flat()]), key = [...want].sort().join(",");
+      if (demo || !c.snap || c.key !== key || Date.now() - c.t >= pollMs) {
+        const snap = await src.snapshot([...want], MIN_SEVERITY);
+        if (!c.version) c.version = await src.version();
+        if (c !== cache) return { snap: emptySnap(), groupIds: {}, allIds: [], allCut: false, error: "", lastOk: 0 };    // the connection was switched meanwhile
+        c.snap = snap; c.key = key; c.t = Date.now(); c.lastOk = Date.now() / 1000; c.error = "";
+      }
+      c.groupIds = groupIds; c.allIds = allIds; c.allCut = all.cut;
+      return { snap: c.snap, groupIds, allIds, allCut: all.cut, error: "", lastOk: c.lastOk };
+    } catch (e) {
+      c.error = e.message || String(e); c.retryAt = Date.now() + RETRY_MS;
+      return { snap: c.snap || emptySnap(), groupIds: c.groupIds, allIds: c.allIds, allCut: c.allCut, error: c.error, lastOk: c.lastOk };
+    }
+  }
+  let lastRefresh = 0;
+  async function doRefresh() {     // Refresh button: new Zabbix session (re-login), caches and error back-off dropped, poll right now
+    if (Date.now() - lastRefresh < 2000) return { ok: !cache.error };
+    lastRefresh = Date.now();
+    const old = cache;
+    resetCaches();
+    cache.snap = old.snap; cache.groupIds = old.groupIds; cache.allIds = old.allIds; cache.allCut = old.allCut; cache.lastOk = old.lastOk;     // keep showing the last good data if Zabbix is still failing
+    if (conns.active !== "demo") {
+      const p = conns.profiles.find(x => x.id === conns.active), secret = p && (p.auth === "token" ? p.token : p.password);
+      if (p && secret) { try { source = new LiveSource(p, secret); sourceError = ""; } catch (e) { sourceError = e.message; } }
+    }
+    const d = await currentData();
+    return { ok: !d.error, error: d.error };
+  }
+  async function currentData() {      // one fetch at a time: concurrent view requests share the cached result
+    while (cache.inflight) { try { await cache.inflight; } catch (e) { /* ignore */ } }
+    const p = compute(); cache.inflight = p;
+    try { return await p; } finally { if (cache.inflight === p) cache.inflight = null; }
+  }
+  function resolveLink(l, nodes, snap, now) {
+    const na = nodes[l.a.node], nb = nodes[l.b.node];
+    const ia = na ? (snap.interfaces[na.host] || {})[l.a.if] : null, ib = nb ? (snap.interfaces[nb.host] || {})[l.b.if] : null;
+    const g = (i, k) => i ? (i[k] == null ? null : i[k]) : null;
+    const first = (...v) => { const x = v.find(y => y != null); return x === undefined ? null : x; };
+    const ab = first(g(ia, "out_bps"), g(ib, "in_bps")), ba = first(g(ia, "in_bps"), g(ib, "out_bps"));
+    const speeds = [g(ia, "speed_bps"), g(ib, "speed_bps")].filter(Boolean), override = l.bandwidth_bps || null;
+    const speed = override || (speeds.length ? Math.min(...speeds) : null);
+    const opers = [g(ia, "oper"), g(ib, "oper")].filter(o => o != null), clocks = [g(ia, "clock"), g(ib, "clock")].filter(Boolean);
+    const newest = clocks.length ? Math.max(...clocks) : 0;
+    let status;
+    if (!ia && !ib) status = "unknown";
+    else if (newest && now - newest > STALE_SECONDS) status = "stale";
+    else if (opers.some(o => DOWN_STATES.has(o))) status = "down";
+    else if (opers.length && opers.every(o => o === 1)) status = "up";
+    else if (opers.length) status = "warn";
+    else if (ab != null || ba != null) status = "up";
+    else status = "unknown";
+    const pct = v => (v != null && speed) ? v / speed * 100 : null;
+    return { id: l.id, status, ab_bps: ab, ba_bps: ba, ab_pct: pct(ab), ba_pct: pct(ba), speed, speed_src: override ? "override" : (speed ? "zabbix" : ""), clock: newest || null };
+  }
+  function thin(points, t0, t1, n = GRAPH_POINTS) {      // at most about `n` points for a graph: when there are more, each time slice of the window becomes the average of its samples
+    const half = x => Math.floor(x + 0.5);
+    if (points.length <= n) return points.map(([c, v]) => [Math.trunc(c), half(v)]);
+    const width = (t1 - t0) / n, acc = new Map();
+    for (const [c, v] of points) {
+      const k = Math.min(n - 1, Math.max(0, Math.floor((c - t0) / width))), a = acc.get(k) || (acc.set(k, [0, 0, 0]), acc.get(k));
+      a[0] += c; a[1] += v; a[2] += 1;
+    }
+    return [...acc.entries()].sort((x, y) => x[0] - y[0]).map(([, a]) => [half(a[0] / a[2]), half(a[1] / a[2])]);
+  }
+  async function linkGraph(tab, lid, minutes) {      // in / out traffic of one link over the last `minutes` (same logic as the Python server's link_graph); null when the tab or link does not exist
+    if (tab.type !== "map") return null;
+    const m = layout.maps[tab.map], l = m.links.find(x => x.id === lid);
+    if (!l) return null;
+    const src = source;
+    if (!src) throw new ZbxError(sourceError || "not connected");
+    const d = await currentData(), ifs = d.snap.interfaces, nodes = Object.fromEntries(m.nodes.map(n => [n.id, n]));
+    const end = side => { const n = nodes[l[side].node]; return n ? ((ifs[n.host] || {})[l[side].if] || null) : null; };
+    const pick = (...cands) => {      // same preference as resolveLink: the first end that has a current value, else the first that has an item -> [ref, current value]
+      const c = cands.filter(([i, k]) => i && i.ref && i.ref[k]), ok = c.find(([i, k]) => i[k + "_bps"] != null), x = ok || c[0];
+      return x ? [x[0].ref[x[1]], x[0][x[1] + "_bps"] == null ? null : x[0][x[1] + "_bps"]] : [null, null];
+    };
+    const ia = end("a"), ib = end("b"), [refAb, nowAb] = pick([ia, "out"], [ib, "in"]), [refBa, nowBa] = pick([ia, "in"], [ib, "out"]), refs = [refAb, refBa];
+    if (!GRAPH_RANGES.includes(minutes)) minutes = GRAPH_DEFAULT;
+    const key = JSON.stringify([conns.active, refs, minutes]), now = Date.now(), hit = gcache.get(key);
+    if (hit && hit.exp > now) return hit.v;
+    const t1 = Math.floor(now / 1000), t0 = t1 - minutes * 60, trends = minutes > TREND_FROM;
+    let [ab, ba] = await src.series(refs, t0, t1, trends);
+    if (trends) {      // trends lag by up to an hour: close the gap to the present with the current value
+      if (ab.length && nowAb != null) ab = ab.concat([[t1, nowAb]]);
+      if (ba.length && nowBa != null) ba = ba.concat([[t1, nowBa]]);
+    }
+    const out = { from: t0, to: t1, minutes, ab: thin(ab, t0, t1), ba: thin(ba, t0, t1) };
+    if (src === source) {
+      for (const [k, e] of gcache) if (e.exp <= now) gcache.delete(k);
+      if (gcache.size >= 256) [...gcache.entries()].sort((x, y) => x[1].exp - y[1].exp).slice(0, 64).forEach(([k]) => gcache.delete(k));
+      gcache.set(key, { exp: now + GRAPH_CACHE_MS, v: out });
+    }
+    return out;
+  }
+  async function view(tab) {
+    const now = Date.now() / 1000, d = await currentData(), snap = d.snap, demo = conns.active === "demo";
+    const status = { ok: !d.error, error: d.error, last_ok: demo ? now : d.lastOk, last_try: now, seconds: 0, version: cache.version, hosts: Object.keys(snap.hosts).length, demo, conn: connName() };
+    const out = { ts: now, status, kind: tab.type };
+    if (tab.type === "map") {
+      const m = layout.maps[tab.map], nodes = Object.fromEntries(m.nodes.map(n => [n.id, n]));
+      out.nodes = m.nodes.map(n => { const h = snap.hosts[n.host] || {}; return { id: n.id, name: h.name || "", status: h.status || "unknown", severity: h.severity || 0, problems: h.problems || 0, proxy: h.proxy || "", top: h.top || [] }; });
+      out.links = m.links.map(l => resolveLink(l, nodes, snap, now));
+    } else {
+      let list = [...tab.hosts]; for (const g of tab.groups) list = list.concat(d.groupIds[g] || []);
+      if (tab.all) { list = list.concat(d.allIds); out.truncated = !!d.allCut; out.max_hosts = MAX_HOSTS; }      // truncated: more monitored hosts exist than MAX_HOSTS allows
+      const seen = new Set(), cards = [];
+      for (const hid of list) {
+        if (seen.has(hid)) continue; seen.add(hid);
+        const h = snap.hosts[hid];
+        if (!h) { cards.push({ id: hid, name: tab.hostnames[hid] || hid, status: "unknown", ip: "", os: "", model: "", severity: 0, problems: 0, proxy: "", top: [], ifaces: [], if_total: 0, if_down: 0 }); continue; }
+        const ifs = Object.entries(snap.interfaces[hid] || {}).map(([name, r]) => {
+          const vals = [r.in_bps, r.out_bps].filter(v => v != null), peak = vals.length ? Math.max(...vals) : null;
+          return { name, alias: r.alias, oper: r.oper, in_bps: r.in_bps, out_bps: r.out_bps, speed: r.speed_bps, pct: (peak != null && r.speed_bps) ? peak / r.speed_bps * 100 : null };
+        });
+        const up = ifs.filter(i => i.oper === 1 || i.oper == null).sort((a, b) => ((a.pct == null) - (b.pct == null)) || ((b.pct || 0) - (a.pct || 0)));
+        cards.push({ id: hid, name: h.name, status: h.status, ip: h.ip || "", os: h.os || "", model: h.model || "", severity: h.severity, problems: h.problems, proxy: h.proxy, top: h.top.slice(0, 3),
+          ifaces: up.slice(0, tab.ifaces), if_total: ifs.length, if_down: ifs.filter(i => DOWN_STATES.has(i.oper)).length });
+      }
+      cards.sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
+      out.cards = cards;
+    }
+    return out;
+  }
+
+  // ---------------------------------------------------------------- the "server": fetch() interception
+  const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "Content-Type": "application/json" } });
+  const failure = (kind, e) => ({ ok: false, error: e.message || String(e), kind, hint: HINTS[kind] || "" });
+  async function testProfile(d) {
+    let cand;
+    try {
+      const existing = d && d.id ? conns.profiles.find(p => p.id === d.id) : null;
+      cand = cleanProfile(d, existing);
+    } catch (e) { return failure("url", e); }
+    const secret = cand.auth === "token" ? cand.token : cand.password;
+    if (!secret) return failure("auth", new Error(cand.auth === "token" ? "Enter the API token" : "Enter the password"));
+    try { return Object.assign({ ok: true }, await new LiveSource(cand, secret, 10000).probe()); }
+    catch (e) { return e instanceof ZbxError ? failure(e.kind, e) : failure("api", e); }
+  }
+  async function connectionsPost(action, body) {
+    if (action === "test") return json(await testProfile(body.profile || {}));
+    if (action === "save") {
+      const d = body.profile || {}, existing = d.id ? conns.profiles.find(p => p.id === d.id) : null;
+      if (d.id && !existing) return json({ error: "that connection cannot be changed here (or does not exist)" }, 400);
+      let p; try { p = cleanProfile(d, existing); } catch (e) { return json({ error: e.message }, 400); }
+      p.id = existing ? existing.id : randId();
+      conns.profiles = existing ? conns.profiles.map(x => x.id === p.id ? p : x) : conns.profiles.concat([p]);
+      if (body.activate) activate(p.id); else { persistConns(); if (conns.active === p.id) activate(p.id); }
+      return json(Object.assign({ ok: true, id: p.id }, connInfo()));
+    }
+    if (action === "activate") {
+      const id = String(body.id || "");
+      if (id !== "demo" && !conns.profiles.some(p => p.id === id)) return json({ error: "unknown connection" }, 404);
+      activate(id); return json(Object.assign({ ok: true }, connInfo()));
+    }
+    if (action === "delete") {
+      const id = String(body.id || "");
+      if (!conns.profiles.some(p => p.id === id)) return json({ error: "that connection cannot be deleted here (or does not exist)" }, 400);
+      conns.profiles = conns.profiles.filter(p => p.id !== id); ss.del(SECRET_KEY + id); ls.del(layoutKey(id));
+      if (conns.active === id) activate("demo"); else persistConns();
+      return json(Object.assign({ ok: true }, connInfo()));
+    }
+    if (action === "reset-demo") { ls.del(layoutKey("demo")); if (conns.active === "demo") activate("demo"); return json({ ok: true }); }
+    return json({ error: "not found" }, 404);
+  }
+  window.fetch = async (input, opts = {}) => {
+    const raw = typeof input === "string" ? input : (input && input.url) || "";
+    if (!raw.includes("/api/")) return realFetch ? realFetch(input, opts) : Promise.reject(new TypeError("fetch unavailable"));
+    const u = new URL(raw, "http://demo.invalid/"), q = u.searchParams, path = u.pathname.slice(u.pathname.indexOf("/api/"));
+    const post = (opts.method || "GET").toUpperCase() === "POST";
+    try {
+      if (!post) {
+        if (path === "/api/layout") return json({ layout, can_edit: true, demo: conns.active === "demo", mode: "standalone", conn: { active: conns.active, name: connName() }, unconfigured: false, defaults: { graph_minutes: GRAPH_DEFAULT, refresh_seconds: POLL_MS / 1000 } });
+        if (path === "/api/connections") return json(connInfo());
+        if (path === "/api/linkgraph") {
+          const tab = layout.tabs.find(t => t.id === q.get("tab"));
+          if (!tab) return json({ error: "no such tab" }, 404);
+          const mm = parseInt(q.get("minutes"), 10), g = await linkGraph(tab, q.get("link") || "", Number.isFinite(mm) ? mm : null);
+          return g ? json(g) : json({ error: "no such link" }, 404);
+        }
+        if (path === "/api/view") { const ev = parseInt(q.get("every"), 10); if (REFRESH_CHOICES.includes(ev)) pollMs = ev * 1000; const tab = layout.tabs.find(t => t.id === q.get("tab")); return tab ? json(await view(tab)) : json({ error: "no such tab" }, 404); }
+        if (path === "/api/hosts" || path === "/api/groups" || path === "/api/interfaces") {
+          if (!source) return json({ error: sourceError || "no connection" }, 502);
+          if (path === "/api/hosts") return json({ items: await source.searchHosts((q.get("q") || "").slice(0, 60)) });
+          if (path === "/api/groups") return json({ items: await source.searchGroups((q.get("q") || "").slice(0, 60)) });
+          const h = q.get("host") || "";
+          return /^[0-9]{1,12}$/.test(h) ? json({ interfaces: await source.interfacesOf(h) }) : json({ error: "bad host id" }, 400);
+        }
+      } else {
+        let body; try { body = JSON.parse(opts.body || "{}"); } catch (e) { return json({ error: "bad request" }, 400); }
+        if (path === "/api/layout") {
+          try { saveLayout(validateLayout(body.layout)); } catch (e) { return json({ error: "invalid layout: " + e.message }, 400); }
+          return json({ ok: true });
+        }
+        if (path === "/api/refresh") return json(await doRefresh());
+        if (path.startsWith("/api/connections/")) return await connectionsPost(path.slice("/api/connections/".length), body);
+      }
+    } catch (e) { return json({ error: e instanceof ZbxError ? e.message : (e.name + ": " + e.message) }, e instanceof ZbxError ? 502 : 500); }
+    return json({ error: "not found" }, 404);
+  };
+
+  loadConns();
+  activate(conns.active);
+  const badge = document.getElementById("demo");
+  if (badge) badge.title = "Simulated Cisco network that runs entirely in this browser. Click the status chip at the top (or press C) to connect to your Zabbix.";
+})();
+</script>
+<script>
+"use strict";
+const EDIT_TOKEN = "demo";
+let DEMO = false;   // set from /api/layout at boot
+const $ = (s, r = document) => r.querySelector(s);
+const SVGNS = "http://www.w3.org/2000/svg";
+
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(props)) {
+    if (k === "class") e.className = v;
+    else if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) e.setAttribute(k, v);
+  }
+  for (const c of kids.flat(Infinity)) {
+    if (c == null || c === false) continue;
+    e.append(c instanceof Node ? c : document.createTextNode(String(c)));
+  }
+  return e;
+}
+function svg(tag, attrs = {}, ...kids) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (v == null || v === false) continue;
+    if (k.startsWith("on")) e.addEventListener(k.slice(2), v);
+    else if (k === "text") e.textContent = v;
+    else e.setAttribute(k, v);
+  }
+  for (const c of kids.flat(Infinity)) if (c) e.append(c);
+  return e;
+}
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    method: opts.body ? "POST" : "GET",
+    headers: { "Content-Type": "application/json", "X-Edit-Token": EDIT_TOKEN },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  let j = null;
+  try { j = await r.json(); } catch (e) {}
+  if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
+  return j;
+}
+
+// ---------- formatting & colours
+const fmtBps = v => v == null ? "n/a" : v >= 1e9 ? (v / 1e9).toFixed(2) + " Gbps" : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e8 ? 0 : 1) + " Mbps" : v >= 1e3 ? (v / 1e3).toFixed(0) + " kbps" : Math.round(v) + " bps";
+const fmtPct = p => p == null ? "n/a" : p < 10 ? p.toFixed(1) + "%" : Math.round(p) + "%";
+const ago = ts => { if (!ts) return "never"; const s = Math.max(0, Math.round(Date.now() / 1000 - ts)); return s < 90 ? s + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; };
+// Link usage colours, from the usage % each step starts at. The first step also covers anything below it (an idle link is light green); the last one has no upper end.
+const SCALE_DEFAULT = [[1, "#86efac"], [10, "#22c55e"], [25, "#a3e635"], [40, "#facc15"], [55, "#fb923c"], [70, "#f97316"]];
+const COL = { down: "#dc2626", stale: "#475569", unknown: "#475569", warn: "#f59e0b" };
+const SEV = ["#64748b", "#3b82f6", "#eab308", "#f97316", "#ef4444", "#b91c1c"];
+const SEVN = ["Not classified", "Information", "Warning", "Average", "High", "Disaster"];
+const scale = () => (L && L.settings && L.settings.scale && L.settings.scale.length) ? L.settings.scale : SCALE_DEFAULT;
+function colorFor(p) { if (p == null) return "#64748b"; let c = scale()[0][1]; for (const [t, col] of scale()) if (p >= t) c = col; return c; }
+function textOn(hex) { const n = parseInt(hex.slice(1), 16); return (0.299 * (n >> 16) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) > 150 ? "#0b0f14" : "#f1f5f9"; }
+const trunc = (s, n) => s.length > n ? s.slice(0, n - 1) + "…" : s;
+const newId = p => p + Math.random().toString(36).slice(2, 8);
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+// ---------- state
+let L = null, canEdit = false, editing = false, tabId = null, view = null, status = null;
+let sel = null, dragging = false, suppressClick = false, showIf = true;
+try { showIf = localStorage.getItem("showIf") !== "0"; } catch (e) {}
+const play = { id: null, idx: 0, running: false, remaining: 0, total: 0 };
+const curTab = () => L && L.tabs.find(t => t.id === tabId);
+const curPlaylist = () => L && L.playlists.find(p => p.id === play.id);
+
+// ---------- display settings of this browser: the time range of the traffic graph and the data refresh interval (header). Remembered here; the URL can carry them
+// (#range=1440&refresh=10) for a wall display. Until somebody picks, the server's defaults (config.json: graph_minutes, poll_seconds) apply.
+const RANGES = [[5, "5m"], [10, "10m"], [30, "30m"], [60, "1h"], [180, "3h"], [360, "6h"], [720, "12h"], [1440, "24h"], [10080, "7d"], [20160, "14d"], [43200, "30d"]];      // minutes
+const REFRESHES = [[5, "5s"], [10, "10s"], [30, "30s"], [60, "1m"], [300, "5m"], [900, "15m"]];      // seconds
+const DISP = { range: 60, refresh: 30, defRange: 60, defRefresh: 30, saved: {} };
+const CID = newId("c");      // this page, as far as the server is concerned: it polls Zabbix as often as the fastest open page wants data
+const inList = (list, v) => list.some(x => x[0] === v);
+try { const s = JSON.parse(localStorage.getItem("channelview-disp") || "{}"); if (inList(RANGES, s.range)) DISP.saved.range = s.range; if (inList(REFRESHES, s.refresh)) DISP.saved.refresh = s.refresh; } catch (e) {}
+const saveDisp = () => { try { localStorage.setItem("channelview-disp", JSON.stringify(DISP.saved)); } catch (e) {} };
+function initDisp(defaults, hash) {      // after the layout is loaded: server defaults < what this browser saved < the URL
+  const d = defaults || {};
+  DISP.defRange = inList(RANGES, d.graph_minutes) ? d.graph_minutes : 60;
+  DISP.defRefresh = inList(REFRESHES, d.refresh_seconds) ? d.refresh_seconds : 30;
+  for (const [k, key, list] of [["range", "range", RANGES], ["refresh", "refresh", REFRESHES]]) {
+    const v = parseInt(hash.get(key), 10);
+    if (inList(list, v)) { DISP.saved[k] = v; saveDisp(); }
+    DISP[k] = DISP.saved[k] !== undefined ? DISP.saved[k] : DISP[k === "range" ? "defRange" : "defRefresh"];
+  }
+  $("#range-select").replaceChildren(...RANGES.map(([v, t]) => el("option", { value: v }, t))); $("#range-select").value = DISP.range;
+  $("#refresh-select").replaceChildren(...REFRESHES.map(([v, t]) => el("option", { value: v }, t))); $("#refresh-select").value = DISP.refresh;
+}
+let refreshT = null;
+function scheduleRefresh() { clearTimeout(refreshT); refreshT = setTimeout(async () => { try { await loadView(); } finally { scheduleRefresh(); } }, DISP.refresh * 1000); }
+$("#range-select").addEventListener("change", e => { DISP.range = DISP.saved.range = parseInt(e.target.value, 10); saveDisp(); graphCache.clear(); setHash(); });
+$("#refresh-select").addEventListener("change", e => { DISP.refresh = DISP.saved.refresh = parseInt(e.target.value, 10); saveDisp(); setHash(); scheduleRefresh(); loadView(); });
+
+// ---------- tooltip
+const tip = $("#tip");
+let tipKey = "", tipPt = { clientX: 0, clientY: 0 };      // tipKey: what the open tooltip is about, so a graph that arrives late is only drawn if it still belongs there
+function tipShow(e, lines, key = "") { tipKey = key; tip.replaceChildren(...lines.map((l, i) => el("div", { class: i === 0 ? "tip-h" : "" }, l))); tip.hidden = false; tipMove(e); }
+function tipMove(e) { tipPt = { clientX: e.clientX, clientY: e.clientY }; const pad = 14; let x = e.clientX + pad, y = e.clientY + pad; const r = tip.getBoundingClientRect(); if (x + r.width > innerWidth - 8) x = e.clientX - r.width - pad; if (y + r.height > innerHeight - 8) y = e.clientY - r.height - pad; tip.style.left = Math.max(4, x) + "px"; tip.style.top = Math.max(4, y) + "px"; }
+const tipHide = () => { tip.hidden = true; tipKey = ""; };
+
+// ---------- map drawing
+const nodeLabel = (n, v) => n.label || (v && v.name) || n.hostname || n.host;
+// Device look: shape (square = the name inside a box, circle / triangle = a symbol with the name underneath) and size.
+const NODE_SHAPES = ["square", "circle", "triangle"], NODE_SIZES = { small: 0.8, medium: 1, large: 1.35, xlarge: 1.8 };
+const nodeShape = n => NODE_SHAPES.includes(n.shape) ? n.shape : "square";
+const nodeSize = n => Object.prototype.hasOwnProperty.call(NODE_SIZES, n.size) ? n.size : "medium";
+// Notifications: the round problem count on a device. On unless the device says `notify: false` (the editor switches it per device or for the whole map).
+const nodeNotify = n => n.notify !== false;
+function setNodeNotify(n, on) { if (on) delete n.notify; else n.notify = false; }      // "on" is the default, so it is not stored
+function nodeGeo(n, v) {
+  const shape = nodeShape(n), k = NODE_SIZES[nodeSize(n)], label = trunc(nodeLabel(n, v), 30), g = { x: n.x, y: n.y, shape, k, label };
+  if (shape === "square") return Object.assign(g, { w: clamp(label.length * 8 + 46, 124, 280) * k, h: 38 * k, fs: 13 * k });
+  const fs = clamp(12 * Math.sqrt(k), 10, 18);
+  Object.assign(g, { fs, lw: label.length * fs * 0.62 + 10, lh: fs + 6 });      // lw / lh: room taken by the name under the symbol
+  if (shape === "circle") return Object.assign(g, { r: 23 * k, w: 46 * k, h: 46 * k, ly: 23 * k + 3 });
+  return Object.assign(g, { tw: 54 * k, th: 47 * k, w: 54 * k, h: 47 * k, ly: 23.5 * k + 3 });      // ly: top of the name, measured from the symbol's centre
+}
+function inShape(g, px, py) {      // is the point (relative to the device centre) on the device? the name under a symbol counts, so a link never runs through it
+  if (g.shape === "square") return Math.abs(px) <= g.w / 2 && Math.abs(py) <= g.h / 2;
+  if (Math.abs(px) <= g.lw / 2 && py >= g.ly - 3 && py <= g.ly + g.lh) return true;
+  if (g.shape === "circle") return px * px + py * py <= g.r * g.r;
+  const t = (py + g.th / 2) / g.th;      // triangle, apex up
+  return t >= 0 && t <= 1 && Math.abs(px) <= t * g.tw / 2;
+}
+function edgeDist(g, ux, uy) {      // distance from the centre to where a link should start, going in direction (ux, uy)
+  if (g.shape === "square") return Math.min((g.w / 2) / Math.max(Math.abs(ux), 1e-9), (g.h / 2) / Math.max(Math.abs(uy), 1e-9)) + 3;
+  let t = 0; while (t < 500 && inShape(g, ux * t, uy * t)) t += 1;
+  return t + 3;
+}
+function offsetLine(pts, d) {      // the polyline moved sideways by d (left of the direction of travel); bends get mitred joins, very sharp ones a bevel
+  const dir = (a, b) => { const dx = b.x - a.x, dy = b.y - a.y, l = Math.hypot(dx, dy) || 1; return [dx / l, dy / l]; };
+  const out = [], n = pts.length;
+  for (let i = 0; i < n; i++) {
+    if (i === 0 || i === n - 1) { const [ux, uy] = i === 0 ? dir(pts[0], pts[1]) : dir(pts[n - 2], pts[n - 1]); out.push({ x: pts[i].x - uy * d, y: pts[i].y + ux * d }); continue; }
+    const [u1x, u1y] = dir(pts[i - 1], pts[i]), [u2x, u2y] = dir(pts[i], pts[i + 1]), n1x = -u1y, n1y = u1x, n2x = -u2y, n2y = u2x, k = 1 + n1x * n2x + n1y * n2y;
+    if (k < 0.2) { out.push({ x: pts[i].x + n1x * d, y: pts[i].y + n1y * d }, { x: pts[i].x + n2x * d, y: pts[i].y + n2y * d }); }
+    else out.push({ x: pts[i].x + (n1x + n2x) * d / k, y: pts[i].y + (n1y + n2y) * d / k });
+  }
+  return out;
+}
+function arrowPoly(path, shaft, head, headLen) {      // an arrow along a path (tail -> tip): a shaft that follows the bends, then the head on the last stretch
+  const n = path.length, q = path[n - 1], p = path[n - 2];
+  const dx = q.x - p.x, dy = q.y - p.y, len = Math.hypot(dx, dy) || 1, ux = dx / len, uy = dy / len, nx = -uy, ny = ux;
+  const hl = Math.min(headLen, len * 0.6), sx = q.x - ux * hl, sy = q.y - uy * hl;
+  const core = path.slice(0, n - 1).concat([{ x: sx, y: sy }]);
+  const left = offsetLine(core, shaft / 2), right = offsetLine(core, -shaft / 2).reverse();
+  const pts = left.map(a => [a.x, a.y]).concat([[sx + nx * head / 2, sy + ny * head / 2], [q.x, q.y], [sx - nx * head / 2, sy - ny * head / 2]], right.map(a => [a.x, a.y]));
+  return pts.map(a => a[0].toFixed(1) + "," + a[1].toFixed(1)).join(" ");
+}
+function pill(g, x, y, text, fill, color, extra = {}) {
+  const w = text.length * 6.6 + 14;
+  g.append(svg("g", { transform: `translate(${x.toFixed(1)},${y.toFixed(1)})`, "pointer-events": "none" },
+    svg("rect", { x: -w / 2, y: -9, width: w, height: 18, rx: 9, fill, stroke: "#05080c", "stroke-width": 1, opacity: (extra.opacity || 1) * (editing && canEdit ? 0.8 : 1) }),      // a little see-through while editing, so the dots that sit under a label show
+    svg("text", { "text-anchor": "middle", y: 4, "font-size": 11, "font-weight": 700, fill: color, text })));
+}
+function linkTip(l, v, A, B) {
+  const lines = [l.name || (A.label + " ↔ " + B.label), A.label + " " + l.a.if + "  ↔  " + B.label + " " + l.b.if];
+  if (v) {
+    lines.push("Status: " + v.status);
+    lines.push(A.label + " → " + B.label + ": " + fmtBps(v.ab_bps) + " (" + fmtPct(v.ab_pct) + ")");
+    lines.push(B.label + " → " + A.label + ": " + fmtBps(v.ba_bps) + " (" + fmtPct(v.ba_pct) + ")");
+    lines.push("Capacity: " + (v.speed ? fmtBps(v.speed) + (v.speed_src === "override" ? " (override)" : "") : "unknown"));
+    if (v.clock) lines.push("Updated " + ago(v.clock));
+  }
+  return lines;
+}
+// ---------- the in / out traffic graph in a link's hover card. The server reads the history (Zabbix history.get) and sends a thinned series per direction.
+const GCOL = { ab: "#4aa3ff", ba: "#c084fc" };      // blue = first device → second, violet = the way back; neither is a status or usage colour, so a graph is never mistaken for a warning
+const graphCache = new Map();      // "tab|link|range" -> { t, data, err, p }: hovering a link again within the refresh interval (the map is redrawn every refresh) does not ask the server again
+function graphLoad(tid, lid) {
+  const mins = DISP.range, key = tid + "|" + lid + "|" + mins, hit = graphCache.get(key);
+  if (hit && (hit.p || (hit.t && Date.now() - hit.t < clamp(DISP.refresh * 1000, 15000, 300000)))) return hit;
+  const ent = { t: 0, data: hit ? hit.data : null, err: "", p: null };      // an older picture stays on screen while the new one is on its way
+  ent.p = api("/api/linkgraph?tab=" + encodeURIComponent(tid) + "&link=" + encodeURIComponent(lid) + "&minutes=" + mins)
+    .then(d => { ent.data = d; ent.err = ""; }, e => { ent.err = e.message || "failed"; })
+    .finally(() => { ent.t = Date.now(); ent.p = null; });
+  graphCache.delete(key); graphCache.set(key, ent);
+  if (graphCache.size > 200) graphCache.delete(graphCache.keys().next().value);
+  return ent;
+}
+const niceMax = x => { if (!(x > 0)) return 1; const p = 10 ** Math.floor(Math.log10(x)), f = x / p; return (f <= 1 ? 1 : f <= 2 ? 2 : f <= 4 ? 4 : f <= 5 ? 5 : f <= 8 ? 8 : 10) * p; };
+const axisBps = v => v <= 0 ? "0" : v >= 1e9 ? +(v / 1e9).toFixed(2) + "G" : v >= 1e6 ? +(v / 1e6).toFixed(1) + "M" : v >= 1e3 ? +(v / 1e3).toFixed(1) + "k" : String(Math.round(v));
+const clockOf = (ts, span) => {      // time of day on a short graph, weekday + time on a day-long one, date + time beyond three days
+  const d = new Date(ts * 1000), t = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  return span > 3 * 86400 ? d.toLocaleDateString([], { month: "short", day: "numeric" }) + " " + t : span > 20 * 3600 ? d.toLocaleDateString([], { weekday: "short" }) + " " + t : t;
+};
+const spanText = min => min < 120 ? min + " min" : min < 2880 ? +(min / 60).toFixed(1) + " h" : +(min / 1440).toFixed(1) + " d";
+function graphView(g, A, B, v) {
+  const W = 340, H = 104, ML = 36, MR = 6, MT = 6, MB = 16, PW = W - ML - MR, PH = H - MT - MB, from = g.from, span = Math.max(1, g.to - g.from);
+  const S = [["ab", A.label + " → " + B.label], ["ba", B.label + " → " + A.label]].map(([k, name]) => ({ k, name, pts: Array.isArray(g[k]) ? g[k] : [] }));
+  const all = S.flatMap(s => s.pts.map(p => p[1]));
+  if (!all.length) return el("div", { class: "muted" }, "No traffic history for this link in the last " + spanText(g.minutes) + ".");
+  const ymax = niceMax(Math.max(...all) * 1.05), X = t => ML + clamp((t - from) / span, 0, 1) * PW, Y = b => MT + PH - clamp(b / ymax, 0, 1) * PH;
+  const kids = [];
+  for (const f of [0, 0.5, 1]) {
+    const y = MT + PH - f * PH;
+    kids.push(svg("line", { x1: ML, x2: W - MR, y1: y, y2: y, stroke: f ? "#243040" : "#3a4a5e", "stroke-width": 1 }), svg("text", { x: ML - 4, y: y + 3, "text-anchor": "end", "font-size": 9, fill: "#8b98a8", text: axisBps(ymax * f) }));
+    kids.push(svg("text", { x: ML + f * PW, y: H - 3, "text-anchor": f === 0 ? "start" : f === 1 ? "end" : "middle", "font-size": 9, fill: "#8b98a8", text: clockOf(from + span * f, span) }));
+  }
+  if (v && v.speed && v.speed <= ymax) kids.push(svg("line", { x1: ML, x2: W - MR, y1: Y(v.speed), y2: Y(v.speed), stroke: "#94a3b8", "stroke-width": 1, "stroke-dasharray": "4 3" }));      // the link's capacity, when the graph reaches it
+  const deltas = S.flatMap(s => s.pts.slice(1).map((p, i) => p[0] - s.pts[i][0])).sort((a, b) => a - b), gap = Math.max(90, 3 * (deltas.length ? deltas[deltas.length >> 1] : 60));      // a hole in the samples breaks the line instead of being drawn across
+  for (const s of S) {
+    const segs = []; let prev = null;
+    for (const [t, b] of s.pts) { if (prev == null || t - prev > gap) segs.push([]); segs[segs.length - 1].push([X(t), Y(b)]); prev = t; }
+    for (const seg of segs) {
+      if (seg.length === 1) { kids.push(svg("circle", { cx: seg[0][0].toFixed(1), cy: seg[0][1].toFixed(1), r: 1.6, fill: GCOL[s.k] })); continue; }
+      const d = seg.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" "), base = MT + PH;
+      kids.push(svg("path", { d: d + " L" + seg[seg.length - 1][0].toFixed(1) + " " + base + " L" + seg[0][0].toFixed(1) + " " + base + " Z", fill: GCOL[s.k], opacity: 0.16 }));
+      kids.push(svg("path", { d, fill: "none", stroke: GCOL[s.k], "stroke-width": 1.5, "stroke-linejoin": "round" }));
+    }
+  }
+  const legend = S.map(s => {
+    const vs = s.pts.map(p => p[1]);
+    return el("div", { class: "tg-row" }, el("span", { class: "tg-sw", style: "background:" + GCOL[s.k] }), el("b", {}, trunc(s.name, 42)),
+      el("div", { class: "tg-st muted" }, vs.length ? "now " + fmtBps(vs[vs.length - 1]) + " · avg " + fmtBps(vs.reduce((a, b) => a + b, 0) / vs.length) + " · max " + fmtBps(Math.max(...vs)) : "no data"));
+  });
+  return el("div", {}, el("div", { class: "tg-h" }, el("span", {}, "Traffic, last " + spanText(g.minutes)), el("span", {}, g.minutes > 1440 ? "bit/s · hourly averages" : "bit/s")),
+    svg("svg", { viewBox: "0 0 " + W + " " + H, width: W, height: H, role: "img", "aria-label": "In and out traffic of the link" }, ...kids), ...legend);
+}
+function linkGraphBox(l, A, B, v) {      // the graph block under the link's text lines: shows what it has at once, and fills in when the server answers
+  const tid = tabId, key = tid + "|" + l.id, box = el("div", { class: "tgraph loading" }, el("span", { class: "muted" }, "Loading graph…")), ent = graphLoad(tid, l.id);
+  tip.append(box);
+  const paint = () => {
+    if (tipKey !== key || !box.isConnected) return;
+    const wait = !ent.data && (ent.p || !ent.err);
+    box.className = "tgraph" + (wait ? " loading" : "");
+    box.replaceChildren(ent.data ? graphView(ent.data, A, B, v) : el("span", { class: "muted" }, wait ? "Loading graph…" : "Graph unavailable: " + ent.err));
+    tipMove(tipPt);
+  };
+  if (ent.data || ent.err) paint();
+  if (ent.p) ent.p.then(paint);
+}
+// ---------- bent links: a link can carry bend points (`via`), so its line can be routed around other devices
+const viaOf = l => (Array.isArray(l.via) ? l.via : []);
+// Interface tags (the interface names written beside the two ends of a link): shown unless the link says `if_show: false`. `if_pos` ("above" /
+// "below") fixes the side of the line they sit on (on a vertical stretch "above" is the left side); a link without it keeps the automatic side.
+const linkShowIf = l => l.if_show !== false;
+const linkIfPos = l => l.if_pos === "above" || l.if_pos === "below" ? l.if_pos : null;
+const tagSide = new Map();      // link id -> the side its tags were last drawn on, so the menus can show where they are right now
+const effIfPos = l => linkIfPos(l) || tagSide.get(l.id) || "above";
+function setLinkTags(l, key, val) {
+  if (key === "if_show") { if (val) delete l.if_show; else l.if_show = false; }
+  else if (val === "above" || val === "below") l.if_pos = val; else delete l.if_pos;
+}
+const sideSign = (q, pos) => { const s = (q.ux > 1e-6 || (Math.abs(q.ux) <= 1e-6 && q.uy < 0)) ? 1 : -1; return pos === "below" ? s : -s; };      // which way along the stretch's normal (-uy, ux) "above" / "below" lies
+function pathLen(pts) { let s = 0; for (let i = 1; i < pts.length; i++) s += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); return s; }
+function pathAt(pts, s) {      // the point s px along the path, plus the stretch it lies on: index i, direction (ux, uy), normal (nx, ny), distance d from the stretch's start and its length
+  let acc = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const a = pts[i - 1], b = pts[i], len = Math.hypot(b.x - a.x, b.y - a.y);
+    if (acc + len >= s || i === pts.length - 1) {
+      const t = len ? clamp((s - acc) / len, 0, 1) : 0, ux = len ? (b.x - a.x) / len : 1, uy = len ? (b.y - a.y) / len : 0;
+      return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, i: i - 1, ux, uy, nx: -uy, ny: ux, d: t * len, len };
+    }
+    acc += len;
+  }
+}
+// The line of a link, from the edge of device A through its bend points to the edge of device B. Straight links keep the sideways offset
+// that separates several links between the same two devices; a bent link is placed by hand, so it has none.
+function linkPath(l, geo, off) {
+  const A = geo.get(l.a.node), B = geo.get(l.b.node);
+  if (!A || !B) return null;
+  const via = viaOf(l);
+  if (!via.length) {
+    const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy);
+    if (len < 30) return null;
+    const ux = dx / len, uy = dy / len, nx = -uy, ny = ux, o = (l.a.node < l.b.node ? off : -off);
+    const sA = edgeDist(A, ux, uy), sB = edgeDist(B, -ux, -uy);
+    const p0 = { x: A.x + ux * sA + nx * o, y: A.y + uy * sA + ny * o }, p1 = { x: B.x - ux * sB + nx * o, y: B.y - uy * sB + ny * o };
+    return Math.hypot(p1.x - p0.x, p1.y - p0.y) < 40 ? null : [p0, p1];
+  }
+  const dir = (from, to) => { const dx = to.x - from.x, dy = to.y - from.y, d = Math.hypot(dx, dy); return d < 1 ? [1, 0] : [dx / d, dy / d]; };
+  const [ax, ay] = dir(A, via[0]), [bx, by] = dir(B, via[via.length - 1]), sA = edgeDist(A, ax, ay), sB = edgeDist(B, bx, by);
+  const pts = [{ x: A.x + ax * sA, y: A.y + ay * sA }, ...via.map(v => ({ x: v.x, y: v.y })), { x: B.x + bx * sB, y: B.y + by * sB }], path = [pts[0]];
+  for (let i = 1; i < pts.length; i++) {      // a bend sitting on top of its neighbour (or on a device edge) adds nothing
+    const last = path[path.length - 1];
+    if (Math.hypot(pts[i].x - last.x, pts[i].y - last.y) >= 4) path.push(pts[i]);
+    else if (i === pts.length - 1 && path.length > 1) path[path.length - 1] = pts[i];
+  }
+  return path.length < 2 || pathLen(path) < 40 ? null : path;
+}
+function drawLink(gl, gt, gh, gd, m, l, v, geo, off) {
+  const A = geo.get(l.a.node), B = geo.get(l.b.node), P = linkPath(l, geo, off);
+  if (!P) return;
+  const bent = P.length > 2, total = pathLen(P);
+  // where the two directions meet: the middle of the line, nudged off a bend so each arrow head sits on a straight stretch
+  let sm = total / 2;
+  { const q = pathAt(P, sm), lo = Math.min(22, q.len * 0.5); if (q.d < lo) sm += lo - q.d; else if (q.len - q.d < lo) sm -= lo - (q.len - q.d); }
+  const M = pathAt(P, sm), gap = 3;
+  const mA = { x: M.x - M.ux * gap, y: M.y - M.uy * gap }, mB = { x: M.x + M.ux * gap, y: M.y + M.uy * gap };
+  const halfA = [...P.slice(0, M.i + 1), mA], halfB = [...P.slice(M.i + 1).reverse(), mB];      // each arrow runs from its device to the middle
+  const st = v ? v.status : "unknown";
+  let cA, cB, dash = null, op = 1;
+  if (st === "down") { cA = cB = COL.down; dash = "7 5"; op = 0.8; }
+  else if (st === "stale" || st === "unknown") { cA = cB = COL.stale; dash = "7 5"; op = 0.7; }
+  else { cA = colorFor(v.ab_pct); cB = colorFor(v.ba_pct); if (st === "warn") dash = "4 3"; }
+  const selected = sel && sel.type === "link" && sel.id === l.id, pstr = P.map(p => p.x.toFixed(1) + "," + p.y.toFixed(1)).join(" ");
+  if (selected) gl.append(svg("polyline", { points: pstr, fill: "none", stroke: "#fff", "stroke-width": 22, opacity: 0.13, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+  const stroke = st === "warn" ? COL.warn : "#05080c";
+  gl.append(svg("polygon", { points: arrowPoly(halfA, 9, 18, 16), fill: cA, stroke, "stroke-width": st === "warn" ? 2 : 1, "stroke-dasharray": dash, opacity: op, "stroke-linejoin": "round" }));
+  gl.append(svg("polygon", { points: arrowPoly(halfB, 9, 18, 16), fill: cB, stroke, "stroke-width": st === "warn" ? 2 : 1, "stroke-dasharray": dash, opacity: op, "stroke-linejoin": "round" }));
+  const at = s => pathAt(P, s);
+  const longestMid = pts => { let best = 0, bl = -1; for (let i = 1; i < pts.length; i++) { const d = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y); if (d > bl) { bl = d; best = i; } } const a = pts[best - 1], b = pts[best]; return { x: a.x + (b.x - a.x) * 0.54, y: a.y + (b.y - a.y) * 0.54 }; };      // a label goes on the longest straight stretch, not on a bend
+  if (st === "down") pill(gt, M.x, M.y, "DOWN", COL.down, "#fff");
+  else if (st === "stale" || st === "unknown") pill(gt, M.x, M.y, st === "stale" ? "no data" : "unknown", COL.stale, "#e2e8f0");
+  else {
+    const lab = (bps, pct) => pct == null ? fmtBps(bps) : fmtPct(pct) + " · " + fmtBps(bps);
+    const a = bent ? longestMid(halfA) : at(total * 0.27), b = bent ? longestMid(halfB) : at(total * 0.73);
+    pill(gt, a.x, a.y, lab(v.ab_bps, v.ab_pct), cA, textOn(cA));
+    pill(gt, b.x, b.y, lab(v.ba_bps, v.ba_pct), cB, textOn(cB));
+  }
+  // small text beside the line: anchored away from it so it never sits on top of the arrow
+  const hitsName = (g, x0, x1, y0, y1) => !!(g && g.lw && x1 >= g.x - g.lw / 2 - 2 && x0 <= g.x + g.lw / 2 + 2 && y1 >= g.y + g.ly - 3 && y0 <= g.y + g.ly + g.lh + 2);      // does the box overlap the name written under a circle / triangle?
+  const sideText = (q, dist, s, size, fill, near, side, attrs) => {      // q: a point on the line with its stretch's normal. side: +1 / -1 along that normal. near: the device this text sits next to - the text hops to the other side of the line if it would land on that device's name
+    const w = s.length * size * 0.58, place = sg => {
+      const cx = q.nx * sg, cy = q.ny * sg, anchor = cx > 0.4 ? "start" : cx < -0.4 ? "end" : "middle";
+      const x = q.x + cx * dist, y = q.y + cy * dist + (Math.abs(cy) > 0.6 ? (cy > 0 ? 8 : -2) : 3), x0 = anchor === "start" ? x : anchor === "end" ? x - w : x - w / 2;
+      return { x, y, anchor, sg, clash: hitsName(near, x0, x0 + w, y - size, y + 3) };
+    };
+    let p = place(side || 1); if (p.clash) { const q2 = place(-(side || 1)); if (!q2.clash) p = q2; }
+    gt.append(svg("text", Object.assign({ x: p.x, y: p.y, "text-anchor": p.anchor, "font-size": size, fill, stroke: "#0b1118", "stroke-width": 3, "stroke-linejoin": "round", "paint-order": "stroke", "pointer-events": "none", text: s }, attrs)));
+    return p.sg;      // the side it ended up on
+  };
+  const tagsOn = showIf && linkShowIf(l), tagPos = linkIfPos(l);
+  if (tagsOn) {
+    const first = Math.hypot(P[1].x - P[0].x, P[1].y - P[0].y), lastLen = Math.hypot(P[P.length - 1].x - P[P.length - 2].x, P[P.length - 1].y - P[P.length - 2].y);
+    const qa = at(Math.min(total * 0.075, first * 0.45)), qb = at(total - Math.min(total * 0.075, lastLen * 0.45));
+    const sgA = sideText(qa, 15, l.a.if, 10, "#9fb0c3", A, tagPos ? sideSign(qa, tagPos) : 1, { class: "iftag", "data-lid": l.id, "data-end": "a" });
+    sideText(qb, 15, l.b.if, 10, "#9fb0c3", B, tagPos ? sideSign(qb, tagPos) : 1, { class: "iftag", "data-lid": l.id, "data-end": "b" });
+    tagSide.set(l.id, sgA === sideSign(qa, "above") ? "above" : "below");
+  }
+  if (l.name && st !== "down" && st !== "stale" && st !== "unknown") sideText(M, 18, trunc(l.name, 28), 10, "#6b7a8c", null, tagsOn && tagPos ? sideSign(M, tagPos === "below" ? "above" : "below") : 1, { class: "linkname", "data-lid": l.id });      // with a chosen tag side the link name goes on the other side
+  gl.append(svg("polyline", {
+    points: pstr, fill: "none", stroke: "transparent", "stroke-width": 24, "stroke-linecap": "round", "stroke-linejoin": "round", style: "cursor:pointer", "data-lid": l.id,
+    onmouseenter: e => { if (!ctxEl) { tipShow(e, linkTip(l, v, A, B), tabId + "|" + l.id); linkGraphBox(l, A, B, v); } }, onmousemove: tipMove, onmouseleave: tipHide,
+    onclick: e => { if (editing) { e.stopPropagation(); select({ type: "link", id: l.id }); } },
+    oncontextmenu: e => ctxOpen(e, { type: "link", id: l.id }),
+  }));
+  if (editing && canEdit) bendHandles(selected ? gh : gd, m, l, P, selected);      // the selected link's dots go on top of everything; the other links' small rings sit under the usage labels (which let clicks through), so they never hide the numbers
+}
+// Every link has one bend point, in the middle of it. A link nobody has bent is straight and follows its devices around; the first time its point is
+// dragged it is fixed where it was dropped (`via`, one point) and stays put when a device moves. Straighten puts it back in the middle.
+const BENDS = 1;
+const snapPt = (p, m) => ({ x: clamp(Math.round(p.x / 10) * 10, 0, m.width), y: clamp(Math.round(p.y / 10) * 10, 0, m.height) });      // bends snap to the same 10 px grid as devices
+const evenPoints = P => Array.from({ length: BENDS }, (_, i) => ({ x: P[0].x + (P[1].x - P[0].x) * (i + 1) / (BENDS + 1), y: P[0].y + (P[1].y - P[0].y) * (i + 1) / (BENDS + 1) }));      // P = [start, end] of a straight link
+function straighten(m, l) { delete l.via; scheduleSave(); select({ type: "link", id: l.id }); }
+function fitVia(m, l) {      // a link saved by an earlier version with several bend points keeps the one that bends it most (the point farthest from the straight line between its devices; among nearly equal ones, the middle one)
+  const A = m.nodes.find(n => n.id === l.a.node), B = m.nodes.find(n => n.id === l.b.node), via = viaOf(l);
+  if (!A || !B || via.length <= BENDS) return;
+  const dx = B.x - A.x, dy = B.y - A.y, len = Math.hypot(dx, dy) || 1, off = v => Math.abs((v.x - A.x) * dy - (v.y - A.y) * dx) / len, mid = (via.length - 1) / 2;
+  const far = Math.max(...via.map(off)); let best = -1;
+  via.forEach((v, i) => { if (off(v) >= far * 0.9 - 0.5 && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i; });
+  l.via = [{ x: via[best].x, y: via[best].y }];
+}
+function startBendDrag(e, m, l, i, base) {      // base: where the point is right now (the stored bend, or the middle spot of a straight link)
+  e.preventDefault(); e.stopPropagation(); tipHide();
+  const p0 = toSvg(e), off = { x: p0.x - base[i].x, y: p0.y - base[i].y };
+  let moved = false;
+  const mv = ev => {
+    const p = toSvg(ev);
+    if (!moved && Math.hypot(p.x - p0.x, p.y - p0.y) <= 3) return;      // still only a click
+    moved = true; dragging = true; tipHide();
+    if (!viaOf(l).length) l.via = base.map(q => ({ x: Math.round(q.x), y: Math.round(q.y) }));      // the first move fixes it where it is
+    l.via[i] = snapPt({ x: p.x - off.x, y: p.y - off.y }, m);
+    renderMain();
+  };
+  const up = () => {
+    removeEventListener("pointermove", mv); removeEventListener("pointerup", up); dragging = false;
+    suppressClick = true; setTimeout(() => { suppressClick = false; }, 80);      // the click that follows must not deselect
+    if (moved) scheduleSave();
+    select({ type: "link", id: l.id });      // a plain click on a point just selects its link
+  };
+  addEventListener("pointermove", mv); addEventListener("pointerup", up);
+}
+function bendHandles(gh, m, l, P, selected) {      // the dot of a link, in edit mode: a big blue one on the selected link, a small ring on the others. Drag it to bend the link, right-click for the menu.
+  const via = viaOf(l), manual = via.length > 0, pts = manual ? via : P.length === 2 ? evenPoints(P) : null;
+  if (!pts) return;
+  const base = pts.map(q => ({ x: q.x, y: q.y }));
+  pts.forEach((v, i) => gh.append(svg("circle", { class: "bend" + (selected ? "" : " idle"), cx: v.x.toFixed(1), cy: v.y.toFixed(1), r: selected ? 7.5 : 4, "data-link": l.id, "data-i": i,
+    onpointerdown: e => { if (e.button === 0) startBendDrag(e, m, l, i, base); },
+    oncontextmenu: e => ctxOpen(e, manual ? { type: "via", id: l.id, index: i } : { type: "link", id: l.id }) })));
+}
+// Weathermap device frame + dot: green = up, red = down. A host Zabbix does not report on (disabled / no data) stays neutral grey rather than pretending to be up.
+const nodeStatusColor = v => !v ? "#475569" : v.status === "down" ? "#ef4444" : v.status === "up" ? "#22c55e" : "#64748b";
+function drawNode(layer, n, v, g) {
+  const col = nodeStatusColor(v), selected = sel && sel.type === "node" && sel.id === n.id, box = g.shape === "square";
+  const frame = { fill: "#141d2a", stroke: selected ? "#fff" : col, "stroke-width": selected ? 3 : 2.5, "stroke-linejoin": "round" };
+  const grp = svg("g", { class: "node", "data-shape": g.shape, "data-id": n.id, transform: box ? `translate(${g.x - g.w / 2},${g.y - g.h / 2})` : `translate(${g.x},${g.y})` });
+  let bx, by;      // centre of the problem badge
+  if (box) {
+    grp.append(svg("rect", Object.assign({ width: g.w, height: g.h, rx: 9 * g.k }, frame)));
+    grp.append(svg("circle", { cx: 16 * g.k, cy: g.h / 2, r: 6 * g.k, fill: col }));
+    grp.append(svg("text", { x: 30 * g.k, y: g.h / 2 + g.fs * 0.385, "font-size": g.fs, "font-weight": 700, fill: "#e6edf3", text: g.label }));
+    bx = g.w - 4; by = 4;
+  } else {
+    let cy = 0;
+    if (g.shape === "circle") { grp.append(svg("circle", Object.assign({ cx: 0, cy: 0, r: g.r }, frame))); bx = g.r * 0.72; by = -g.r * 0.72; }
+    else { grp.append(svg("polygon", Object.assign({ points: `0,${-g.th / 2} ${g.tw / 2},${g.th / 2} ${-g.tw / 2},${g.th / 2}` }, frame))); cy = g.th / 6; bx = g.tw * 0.16 + 6; by = -g.th * 0.18; }
+    grp.append(svg("circle", { cx: 0, cy, r: Math.max(4, 6 * g.k), fill: col }));
+    grp.append(svg("text", { x: 0, y: g.ly + g.fs * 0.85, "text-anchor": "middle", "font-size": g.fs, "font-weight": 700, fill: "#e6edf3", stroke: "#0b1118", "stroke-width": 3, "stroke-linejoin": "round", "paint-order": "stroke", text: g.label }));
+  }
+  const notify = nodeNotify(n);
+  if (!notify && editing && canEdit) {      // edit mode only: a dashed ring with a slash marks a device whose notifications are off (view and kiosk show nothing there)
+    grp.append(svg("circle", { class: "muted-mark", cx: bx, cy: by, r: 8, fill: "#0b1118", stroke: "#94a3b8", "stroke-width": 1.5, "stroke-dasharray": "3 2" }),
+      svg("line", { class: "muted-mark", x1: bx - 5, y1: by + 5, x2: bx + 5, y2: by - 5, stroke: "#94a3b8", "stroke-width": 1.5 }));
+  }
+  if (notify && v && v.problems > 0) {
+    grp.append(svg("circle", { class: "pbadge", cx: bx, cy: by, r: 9, fill: SEV[v.severity] || SEV[2], stroke: "#05080c" }));
+    grp.append(svg("text", { class: "pbadge", x: bx, y: by + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 700, fill: "#fff", text: v.problems > 9 ? "9+" : v.problems }));
+  }
+  grp.addEventListener("mouseenter", e => { if (dragging || ctxEl) return; const lines = [g.label, "Status: " + (v ? v.status : "unknown")]; if (!notify) lines.push("Notifications are off for this device"); for (const p of (v && v.top) || []) lines.push("• [" + SEVN[p.severity] + "] " + p.name); tipShow(e, lines); });
+  grp.addEventListener("mousemove", tipMove);
+  grp.addEventListener("mouseleave", tipHide);
+  grp.addEventListener("pointerdown", e => { if (editing && e.button === 0) startDrag(e, n); });
+  grp.addEventListener("contextmenu", e => ctxOpen(e, { type: "node", id: n.id }));
+  layer.append(grp);
+}
+// The usage meter sits bottom-left unless the map says otherwise: `legend: { x, y, dir }` - x / y are 0..100 (% of the free space in the map area, so the same spot
+// on any screen size and in kiosk), dir "v" lays it out vertically. In edit mode it carries a bar to drag it by, a switch for horizontal / vertical and a reset.
+const LEG_M = 12;      // px kept free around it
+const legPct = (v, span) => span > 0 ? Math.floor(clamp(v / span * 100, 0, 100) * 10 + 0.5) / 10 : 0;      // same rounding as the layout validation (0.1)
+function setLegend(m, patch) {      // keeps the stored object minimal: nothing stored = bottom-left, horizontal
+  const lg = Object.assign({}, m.legend, patch);
+  if (lg.dir !== "v") delete lg.dir;
+  if (typeof lg.x !== "number" || typeof lg.y !== "number") { delete lg.x; delete lg.y; }
+  if (Object.keys(lg).length) m.legend = lg; else delete m.legend;
+}
+function placeLegend(host, m) {
+  const lg = host.querySelector(".legend"), c = m && m.legend;
+  if (!lg) return;
+  if (!c || typeof c.x !== "number" || typeof c.y !== "number") { lg.style.left = lg.style.top = lg.style.bottom = ""; return; }      // not moved: the stylesheet's bottom-left
+  lg.style.left = (LEG_M + Math.max(0, host.clientWidth - lg.offsetWidth - 2 * LEG_M) * c.x / 100).toFixed(1) + "px";
+  lg.style.top = (LEG_M + Math.max(0, host.clientHeight - lg.offsetHeight - 2 * LEG_M) * c.y / 100).toFixed(1) + "px";
+  lg.style.bottom = "auto";
+}
+function startLegendDrag(e, host, m) {
+  if (e.button !== 0 || e.target.closest("button, label, input")) return;
+  e.preventDefault(); e.stopPropagation(); tipHide();
+  const r = host.querySelector(".legend").getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+  let moved = false;
+  const mv = ev => {
+    const lg = host.querySelector(".legend"), hr = host.getBoundingClientRect(), W = host.clientWidth - lg.offsetWidth - 2 * LEG_M, H = host.clientHeight - lg.offsetHeight - 2 * LEG_M;      // (the live element: a redraw may have replaced it)
+    setLegend(m, { x: legPct(ev.clientX - dx - hr.left - LEG_M, W), y: legPct(ev.clientY - dy - hr.top - LEG_M, H) });
+    placeLegend(host, m); moved = true; dragging = true;
+  };
+  const up = () => { removeEventListener("pointermove", mv); removeEventListener("pointerup", up); dragging = false; if (moved) { scheduleSave(); renderDrawer(); } };
+  addEventListener("pointermove", mv); addEventListener("pointerup", up);
+}
+addEventListener("resize", () => { const h = $("#main"), t = curTab(); if (h && t && t.type === "map" && L && L.maps[t.map]) placeLegend(h, L.maps[t.map]); });
+function legend(m) {
+  const s = scale(), vert = !!(m && m.legend && m.legend.dir === "v"), ed = editing && canEdit && !!m;
+  const tg = el("input", { type: "checkbox" }); tg.checked = showIf;
+  tg.addEventListener("change", () => { showIf = tg.checked; try { localStorage.setItem("showIf", showIf ? "1" : "0"); } catch (e) {} renderMain(); });
+  return el("div", { class: "legend" + (vert ? " vert" : "") + (ed ? " editable" : ""), onpointerdown: ed ? e => startLegendDrag(e, $("#main"), m) : null },
+    ed ? el("div", { class: "lg-bar" }, el("span", { class: "grip", title: "Drag to move the usage meter" }, "⠿ Usage meter"),
+      el("button", { type: "button", class: "lg-flip", title: vert ? "Lay the meter out horizontally" : "Lay the meter out vertically", "aria-label": vert ? "Horizontal" : "Vertical", onclick: () => { setLegend(m, { dir: vert ? "h" : "v" }); changed(true); } }, vert ? "⇄" : "⇅"),
+      el("button", { type: "button", class: "lg-reset", title: "Back to the bottom-left corner, horizontal", "aria-label": "Reset the usage meter", onclick: () => { delete m.legend; changed(true); } }, "↺")) : null,
+    el("div", { class: "muted" }, "Link usage per direction – the label nearest a device is traffic leaving it"),
+    el("div", { class: "bars" }, s.map(([t, c], i) => el("div", { class: "lg", style: `background:${c};color:${textOn(c)}` }, (s[i + 1] ? t + "–" + s[i + 1][0] : t + "+") + "%")),
+      el("div", { class: "lg", style: `background:${COL.down};color:#fff` }, "down"), el("div", { class: "lg", style: `background:${COL.stale};color:#fff` }, "no data")),
+    el("label", { title: "Hides / shows the interface names on every link on this screen. Which links carry them, and on which side of the line, is set per link in edit mode." }, tg, " show interface names"));
+}
+function drawMap(host, tab) {
+  const m = L.maps[tab.map];
+  if (!m) { host.replaceChildren(el("div", { class: "empty" }, "Map missing")); return; }
+  const vn = new Map(((view && view.kind === "map" && view.nodes) || []).map(n => [n.id, n]));
+  const vl = new Map(((view && view.kind === "map" && view.links) || []).map(l => [l.id, l]));
+  const root = svg("svg", { class: "map", viewBox: `0 0 ${m.width} ${m.height}`, preserveAspectRatio: "xMidYMid meet" });
+  if (editing) {
+    root.append(svg("defs", {}, svg("pattern", { id: "grid", width: 20, height: 20, patternUnits: "userSpaceOnUse" }, svg("path", { d: "M20 0H0V20", fill: "none", stroke: "#1a2433", "stroke-width": 1 }))));
+    root.append(svg("rect", { width: m.width, height: m.height, fill: "url(#grid)" }));
+  }
+  root.addEventListener("click", () => { if (editing && sel && !suppressClick) select(null); });
+  const geo = new Map(m.nodes.map(n => [n.id, nodeGeo(n, vn.get(n.id))]));
+  const pairs = new Map(), bentLinks = [];
+  for (const l of m.links) { if (viaOf(l).length) { bentLinks.push(l); continue; } const k = [l.a.node, l.b.node].sort().join("|"); if (!pairs.has(k)) pairs.set(k, []); pairs.get(k).push(l); }      // a bent link is placed by hand: it does not take part in the side-by-side spreading
+  const gl = svg("g"), gt = svg("g"), gn = svg("g"), gh = svg("g"), gd = svg("g");
+  for (const arr of pairs.values()) arr.forEach((l, i) => drawLink(gl, gt, gh, gd, m, l, vl.get(l.id), geo, (i - (arr.length - 1) / 2) * 24));
+  for (const l of bentLinks) drawLink(gl, gt, gh, gd, m, l, vl.get(l.id), geo, 0);
+  for (const n of m.nodes) drawNode(gn, n, vn.get(n.id), geo.get(n.id));
+  root.append(gl, gn, gd, gt, gh);
+  host.replaceChildren(root, legend(m), el("div", { class: "stamp" }, view && view.ts ? "data " + (status && status.last_ok ? ago(status.last_ok) : "") : ""));
+  placeLegend(host, m);
+  if (!m.nodes.length) host.append(el("div", { class: "empty", style: "position:absolute;inset:0;pointer-events:none" }, canEdit ? "This map is empty – click Edit, then add devices from Zabbix and join them with links." : "This map is empty."));
+}
+function toSvg(e) { const s = $("#main svg.map"); const pt = s.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY; const m = s.getScreenCTM(); return m ? pt.matrixTransform(m.inverse()) : { x: 0, y: 0 }; }
+function startDrag(e, n) {
+  e.preventDefault(); e.stopPropagation();
+  const m = L.maps[curTab().map], p0 = toSvg(e), off = { x: p0.x - n.x, y: p0.y - n.y };
+  let moved = false;
+  const mv = ev => { const p = toSvg(ev); dragging = true; moved = true; tipHide(); n.x = clamp(Math.round((p.x - off.x) / 10) * 10, 0, m.width); n.y = clamp(Math.round((p.y - off.y) / 10) * 10, 0, m.height); renderMain(); };
+  const up = () => {
+    removeEventListener("pointermove", mv); removeEventListener("pointerup", up); dragging = false;
+    suppressClick = true; setTimeout(() => { suppressClick = false; }, 80);  // the click that follows a drag must not deselect
+    if (moved) scheduleSave();
+    select({ type: "node", id: n.id });
+  };
+  addEventListener("pointermove", mv); addEventListener("pointerup", up);
+}
+
+// ---------- devices tab (cards or list)
+const DEV_KEYS = ["name", "ip", "status", "proxy", "model", "os", "problems", "ifs", "busy"], DEV_GROUPS = ["none", "status", "proxy", "problems", "ip", "name", "os", "model"];
+const PER_CHOICES = [10, 25, 50, 100, 200, 500];      // devices per page
+const DEVUI = { q: "", only: false, key: "name", dir: 1, group: "none", per: 50, pages: {}, open: new Set(), closed: new Set() };      // filter / sort / group / page size / expanded rows, shared by all device tabs; pages = current page of each tab
+try {      // sort, group and "only issues" are remembered in this browser
+  const s = JSON.parse(localStorage.getItem("channelview-devui") || "{}");
+  if (DEV_KEYS.includes(s.key)) DEVUI.key = s.key;
+  if (s.dir === 1 || s.dir === -1) DEVUI.dir = s.dir;
+  if (DEV_GROUPS.includes(s.group)) DEVUI.group = s.group;
+  if (PER_CHOICES.includes(s.per)) DEVUI.per = s.per;
+  DEVUI.only = s.only === true;
+} catch (e) {}
+const saveDevUI = () => { try { localStorage.setItem("channelview-devui", JSON.stringify({ key: DEVUI.key, dir: DEVUI.dir, group: DEVUI.group, only: DEVUI.only, per: DEVUI.per })); } catch (e) {} };
+const resetPages = () => { DEVUI.pages = {}; };      // a new filter / sort / grouping starts again on page 1
+function devMode(tab) {
+  try { const v = localStorage.getItem("channelview-devview:" + tab.id); if (v === "cards" || v === "list") return v; } catch (e) {}     // a viewer's own choice wins
+  return tab.style === "list" ? "list" : "cards";
+}
+function setDevMode(tab, v) { try { localStorage.setItem("channelview-devview:" + tab.id, v); } catch (e) {} renderMain(); }
+const ST_RANK = { down: 0, unknown: 1, disabled: 2, up: 3 };
+const ipSortKey = s => /^\d+\.\d+\.\d+\.\d+$/.test(s || "") ? "0" + String(s.split(".").reduce((a, p) => a * 256 + (+p), 0)).padStart(12, "0") : "1" + (s || "~").toLowerCase();
+const subnet24 = ip => /^\d+\.\d+\.\d+\.\d+$/.test(ip || "") ? ip.split(".").slice(0, 3).join(".") + ".0/24" : "";
+const DCOLS = [
+  { k: "name", t: "Device", v: c => c.name.toLowerCase() },
+  { k: "ip", t: "IP address", v: c => ipSortKey(c.ip) },
+  { k: "status", t: "Status", v: c => ST_RANK[c.status] == null ? 1 : ST_RANK[c.status] },
+  { k: "proxy", t: "Proxy", v: c => c.proxy ? c.proxy.toLowerCase() : "~" },
+  { k: "model", t: "Model", v: c => c.model ? c.model.toLowerCase() : "~" },
+  { k: "os", t: "OS", v: c => c.os ? c.os.toLowerCase() : "~" },
+  { k: "problems", t: "Problems", desc: true, v: c => (c.problems || 0) * 10 + (c.severity || 0) },
+  { k: "ifs", t: "Interfaces", desc: true, v: c => c.if_down * 1000 + c.if_total },
+  { k: "busy", t: "Busiest interface", desc: true, v: c => (c.ifaces[0] && c.ifaces[0].pct != null) ? c.ifaces[0].pct : -1 },
+];
+// "Group by" choices: of = which group a device falls in, label = group heading, ord = how groups are ordered, desc = natural direction (most first)
+const GROUPS = {
+  status:   { t: "Status",              of: c => c.status || "unknown", label: g => g, ord: g => ST_RANK[g] == null ? 1 : ST_RANK[g], desc: false },
+  proxy:    { t: "Proxy",               of: c => c.proxy || "", label: g => g || "No proxy (direct)", ord: g => g ? g.toLowerCase() : "~", desc: false },
+  problems: { t: "Most problems",       of: c => c.problems || 0, label: g => g ? g + (g === 1 ? " problem" : " problems") : "No problems", ord: g => g, desc: true },
+  ip:       { t: "IP address (subnet)", of: c => subnet24(c.ip), label: g => g || "Hostname / no IPv4 address", ord: g => g ? ipSortKey(g.split("/")[0]) : "2", desc: false },
+  name:     { t: "Name (first letter)", of: c => ((c.name || "#")[0] || "#").toUpperCase(), label: g => g, ord: g => g, desc: false },
+  os:       { t: "Operating system",    of: c => c.os || "", label: g => g || "Unknown OS (not in the host inventory)", ord: g => g ? g.toLowerCase() : "~", desc: false },
+  model:    { t: "Device model",        of: c => c.model || "", label: g => g || "Unknown model (not in the host inventory)", ord: g => g ? g.toLowerCase() : "~", desc: false },
+};
+const naturalDir = k => GROUPS[k] && GROUPS[k].desc ? -1 : 1;
+function devSort(list) {
+  const col = DCOLS.find(c => c.k === DEVUI.key) || DCOLS[0], d = DEVUI.dir;
+  return list.slice().sort((a, b) => { const x = col.v(a), y = col.v(b); return (x < y ? -d : x > y ? d : 0) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1); });
+}
+function devGroups(list) {      // -> [{ id, g, label, items }]; id "" = no grouping
+  const G = GROUPS[DEVUI.group];
+  if (!G) return [{ id: "", items: devSort(list) }];
+  const m = new Map();
+  for (const c of list) { const g = G.of(c); if (!m.has(g)) m.set(g, []); m.get(g).push(c); }
+  const d = DEVUI.key === DEVUI.group ? DEVUI.dir : naturalDir(DEVUI.group);      // the order button flips the groups when the list is sorted by the grouping column
+  return [...m.entries()].map(([g, items]) => ({ id: DEVUI.group + ":" + g, g, label: G.label(g), items: devSort(items), o: G.ord(g) }))
+    .sort((a, b) => a.o < b.o ? -d : a.o > b.o ? d : 0);
+}
+// Devices tab (cards / list) traffic light: red = down, yellow = Zabbix reports problems on it, green = up and clean, grey = not monitored / no data
+const DEV_RED = "#ef4444", DEV_YEL = "#eab308", DEV_GRN = "#22c55e", DEV_GREY = "#64748b";
+const devColor = c => c.status === "down" ? DEV_RED : c.status === "disabled" ? DEV_GREY : c.problems > 0 ? DEV_YEL : c.status === "up" ? DEV_GRN : DEV_GREY;
+const devState = c => c.status === "down" ? "Down" : c.status === "disabled" ? "Not monitored" : c.problems > 0 ? "Up, with problems" : c.status === "up" ? "Up, no problems" : "No data";
+const probEl = p => el("div", { class: "prob", style: "border-left-color:" + DEV_YEL }, el("span", { class: "sevn" }, SEVN[p.severity] || "Problem"), " ", p.name);      // severity stays readable as text; the colour is just "has a problem"
+const stateColor = s => s === "up" ? "var(--ok)" : s === "down" ? "var(--bad)" : "var(--muted)";
+function ifLine(i) {
+  return el("div", { class: "if", title: i.alias || "" }, el("span", { class: "grow" }, i.name),
+    el("div", { class: "bar" }, el("i", { style: `width:${clamp(i.pct || 0, 0, 100)}%;background:${colorFor(i.pct)}` })),
+    el("span", {}, fmtPct(i.pct) + " · ↓" + fmtBps(i.in_bps).replace(" ", "") + " ↑" + fmtBps(i.out_bps).replace(" ", "")));
+}
+function cardEl(c) {
+  const col = devColor(c);
+  return el("div", { class: "card", style: "border-left-color:" + col },
+    el("h3", {}, el("span", { class: "dot", style: "background:" + col, title: devState(c) }), c.name),
+    el("div", { class: "meta" }, el("span", {}, c.status), c.ip ? el("span", {}, c.ip) : null, c.model ? el("span", { title: "Device model" }, c.model) : null, c.os ? el("span", { title: "Operating system" }, c.os) : null, c.proxy ? el("span", {}, "via " + c.proxy) : null, c.problems ? el("span", { style: "color:" + DEV_YEL }, c.problems + " problem" + (c.problems > 1 ? "s" : "")) : null, c.if_total ? el("span", {}, c.if_total + " interfaces" + (c.if_down ? " (" + c.if_down + " down)" : "")) : null),
+    c.top.map(p => probEl(p)),
+    c.ifaces.map(ifLine));
+}
+function gHead(g, span) {      // clickable group heading (table row, or a block above the cards)
+  const shut = DEVUI.closed.has(g.id), col = DEVUI.group === "status" ? stateColor(g.g) : null;
+  const n = g.n || g.items.length;
+  const inner = [el("span", { class: "twisty" }, shut ? "▸" : "▾"), col ? el("span", { class: "dot", style: "background:" + col }) : null, el("b", {}, g.label),
+    el("span", { class: "muted" }, " · " + n + (n === 1 ? " device" : " devices") + (!shut && g.items.length < n ? " (" + g.items.length + " on this page)" : "") + (g.cont ? " · continued" : ""))];
+  const toggle = () => { if (shut) DEVUI.closed.delete(g.id); else DEVUI.closed.add(g.id); renderMain(); };
+  return span ? el("tr", { class: "ghead", title: "Click to collapse / expand", onclick: toggle }, el("td", { colspan: String(span) }, inner))
+    : el("div", { class: "ghead", title: "Click to collapse / expand", onclick: toggle }, inner);
+}
+function devRows(c) {
+  const col = devColor(c), open = DEVUI.open.has(c.id), b = c.ifaces[0], top = c.top[0], rows = [];
+  rows.push(el("tr", { class: "drow", title: "Click for details", onclick: () => { if (open) DEVUI.open.delete(c.id); else DEVUI.open.add(c.id); renderMain(); } },
+    el("td", { class: "nm", style: "border-left:4px solid " + col }, el("span", { class: "twisty" }, open ? "▾" : "▸"), el("span", { class: "dot", style: "background:" + col, title: devState(c) }), c.name),
+    el("td", { class: "mono" }, c.ip || "–"),
+    el("td", {}, el("span", { class: "st", style: "color:" + stateColor(c.status) + ";border-color:" + stateColor(c.status) }, c.status)),
+    el("td", {}, c.proxy || el("span", { class: "muted" }, "–")),
+    el("td", { class: "cl", title: c.model || "" }, c.model || el("span", { class: "muted" }, "–")),
+    el("td", { class: "cl", title: c.os || "" }, c.os || el("span", { class: "muted" }, "–")),
+    el("td", {}, c.problems ? el("span", { class: "pcount", style: "background:" + DEV_YEL }, c.problems) : el("span", { class: "muted" }, "–"),
+      top ? el("span", { class: "ptxt", title: top.name }, top.name) : null),
+    el("td", {}, c.if_total ? [c.if_total + "", c.if_down ? el("span", { style: "color:var(--bad)" }, " (" + c.if_down + " down)") : null] : el("span", { class: "muted" }, "–")),
+    el("td", {}, b ? [el("span", { class: "ifn" }, b.name), el("span", { class: "pbar" }, el("i", { style: `width:${clamp(b.pct || 0, 0, 100)}%;background:${colorFor(b.pct)}` })),
+      el("span", { class: "pv" }, fmtPct(b.pct) + " · ↓" + fmtBps(b.in_bps).replace(" ", "") + " ↑" + fmtBps(b.out_bps).replace(" ", ""))] : el("span", { class: "muted" }, "–"))));
+  if (open) rows.push(el("tr", { class: "det" }, el("td", { colspan: String(DCOLS.length) },
+    c.top.length ? c.top.map(p => probEl(p)) : el("div", { class: "muted" }, "No active problems."),
+    c.ifaces.length ? el("div", { class: "dif" }, c.ifaces.map(ifLine), el("div", { class: "hint" }, "Busiest " + c.ifaces.length + " of " + c.if_total + " interfaces" + (canEdit ? " (change the count in Edit › This tab)." : "."))) : el("div", { class: "muted" }, "No interface data."))));
+  return rows;
+}
+function devTable(groups) {
+  const head = el("tr", {}, ...DCOLS.map(c => el("th", { title: "Sort by " + c.t.toLowerCase(), onclick: () => {
+    if (DEVUI.key === c.k) DEVUI.dir = -DEVUI.dir; else { DEVUI.key = c.k; DEVUI.dir = c.desc ? -1 : 1; }
+    resetPages(); saveDevUI(); renderMain(); } }, c.t, DEVUI.key === c.k ? el("span", { class: "ar" }, DEVUI.dir > 0 ? "▲" : "▼") : null)));
+  const rows = [];
+  for (const g of groups) {
+    if (g.id) rows.push(gHead(g, DCOLS.length));
+    if (g.id && DEVUI.closed.has(g.id)) continue;
+    for (const c of g.items) rows.push(...devRows(c));
+  }
+  return el("div", { class: "dwrap" }, el("table", { class: "dt" }, el("thead", {}, head), el("tbody", {}, rows)));
+}
+function devCards(groups) {
+  return el("div", {}, groups.map(g => [g.id ? gHead(g) : null, g.id && DEVUI.closed.has(g.id) ? null : el("div", { class: "cards" }, g.items.map(cardEl))]));
+}
+// Paging: the filtered, sorted and grouped list is cut into pages of DEVUI.per devices. Devices of a collapsed group take no room (so
+// collapsing groups gives an overview); a group that runs over a page boundary continues under the same heading on the next page.
+function devPage(groups, key) {
+  const per = DEVUI.per, weight = g => g.id && DEVUI.closed.has(g.id) ? 0 : g.items.length;
+  const total = groups.reduce((n, g) => n + weight(g), 0), pages = Math.max(1, Math.ceil(total / per)), page = clamp(DEVUI.pages[key] || 1, 1, pages);
+  DEVUI.pages[key] = page;
+  const from = (page - 1) * per, to = Math.min(total, from + per), out = [];
+  let pos = 0;
+  for (const g of groups) {
+    const w = weight(g), a = Math.max(from, pos), b = Math.min(to, pos + w);
+    if (w === 0) { if ((pos >= from && pos < to) || (pos >= total && page === pages)) out.push(Object.assign({}, g, { n: g.items.length })); }
+    else if (b > a) out.push(Object.assign({}, g, { items: g.items.slice(a - pos, b - pos), n: g.items.length, cont: a > pos }));
+    pos += w;
+  }
+  return { groups: out, total, pages, page, from, to };
+}
+function setPage(tab, n) { DEVUI.pages[tab.id] = n; renderMain(); const m = $("#main"); if (m) m.scrollTop = 0; }
+function pagerEl(pg, tab) {
+  if (pg.pages < 2) return null;
+  const go = n => () => setPage(tab, n), nums = [...new Set([1, pg.pages, pg.page - 2, pg.page - 1, pg.page, pg.page + 1, pg.page + 2].filter(n => n >= 1 && n <= pg.pages))].sort((a, b) => a - b);
+  const kids = [el("button", { type: "button", class: "pg pg-prev", disabled: pg.page <= 1, onclick: go(pg.page - 1) }, "‹ Prev")];
+  let last = 0;
+  for (const n of nums) {
+    if (n - last > 1) kids.push(el("span", { class: "gap" }, "…"));
+    kids.push(el("button", { type: "button", class: "pg pg-n" + (n === pg.page ? " on" : ""), "aria-current": n === pg.page ? "page" : false, onclick: go(n) }, String(n)));
+    last = n;
+  }
+  kids.push(el("button", { type: "button", class: "pg pg-next", disabled: pg.page >= pg.pages, onclick: go(pg.page + 1) }, "Next ›"), el("span", { class: "pinfo" }, "Page " + pg.page + " of " + pg.pages));
+  return el("div", { class: "pager", role: "navigation", "aria-label": "Pages" }, kids);
+}
+function drawDevices(host, tab) {
+  const all = (view && view.kind === "devices" && view.cards) || [];
+  if (!all.length) { host.replaceChildren(el("div", { class: "empty" }, view ? "No devices yet." + (canEdit ? " Click Edit to add hosts or host groups to this tab." : "") : "Loading…")); return; }
+  const q = DEVUI.q.trim().toLowerCase(), mode = devMode(tab);
+  const issue = c => c.status !== "up" || c.problems > 0 || c.if_down > 0;
+  const list = all.filter(c => (!DEVUI.only || issue(c)) && (!q || [c.name, c.ip, c.proxy, c.status, ...c.top.map(p => p.name)].join("\n").toLowerCase().includes(q)));
+  const ae = document.activeElement, keep = ae && ae.id === "dev-q" ? [ae.selectionStart, ae.selectionEnd] : null;     // the page re-renders on every poll: keep typing intact
+  const qi = el("input", { id: "dev-q", type: "search", placeholder: "Filter by name, IP, proxy, problem…", spellcheck: "false", autocomplete: "off" });
+  qi.value = DEVUI.q; qi.addEventListener("input", () => { DEVUI.q = qi.value; resetPages(); renderMain(); });
+  const onlyCb = el("input", { type: "checkbox", style: "width:auto" }); onlyCb.checked = DEVUI.only;
+  onlyCb.addEventListener("change", () => { DEVUI.only = onlyCb.checked; resetPages(); saveDevUI(); renderMain(); });
+  const gsel = el("select", { id: "dev-group", title: "Group the devices" }, el("option", { value: "none" }, "None"), ...Object.entries(GROUPS).map(([k, v]) => el("option", { value: k }, v.t)));
+  gsel.value = DEVUI.group;
+  gsel.addEventListener("change", () => {
+    DEVUI.group = gsel.value; DEVUI.closed.clear(); resetPages();
+    if (GROUPS[DEVUI.group]) { DEVUI.key = DEVUI.group; DEVUI.dir = naturalDir(DEVUI.group); }      // grouping by X also orders by X, most-first for "Most problems"
+    saveDevUI(); renderMain(); });
+  const dirBtn = el("button", { id: "dev-dir", type: "button", title: "Reverse the order", onclick: () => { DEVUI.dir = -DEVUI.dir; resetPages(); saveDevUI(); renderMain(); } }, DEVUI.dir > 0 ? "▲ Ascending" : "▼ Descending");
+  const pg = devPage(devGroups(list), tab.id);
+  const perSel = el("select", { id: "dev-per", title: "Devices per page" }, ...PER_CHOICES.map(n => el("option", { value: String(n) }, String(n))));
+  perSel.value = String(DEVUI.per);
+  perSel.addEventListener("change", () => { DEVUI.per = +perSel.value; resetPages(); saveDevUI(); renderMain(); });
+  const nDown = all.filter(c => c.status === "down").length, nProb = all.filter(c => c.problems > 0).length, whole = list.length === all.length;
+  const sum = (pg.pages > 1 ? "Showing " + (pg.from + 1) + "–" + pg.to + " of " + pg.total + (pg.total !== list.length ? " in open groups" : whole ? " devices" : " matching") + (whole ? "" : " · " + all.length + " devices")
+    : whole ? all.length + " devices" : list.length + " of " + all.length + " devices") + (nDown ? " · " + nDown + " down" : "") + (nProb ? " · " + nProb + " with problems" : "");
+  const seg = el("span", { class: "seg" }, el("button", { class: mode === "list" ? "on" : "", type: "button", onclick: () => setDevMode(tab, "list") }, "List"),
+    el("button", { class: mode === "cards" ? "on" : "", type: "button", onclick: () => setDevMode(tab, "cards") }, "Cards"));
+  const nav = pg.pages > 1 ? el("span", { class: "seg" }, el("button", { id: "dev-prev", type: "button", title: "Previous page", disabled: pg.page <= 1, onclick: () => setPage(tab, pg.page - 1) }, "‹"),
+    el("button", { id: "dev-next", type: "button", title: "Next page", disabled: pg.page >= pg.pages, onclick: () => setPage(tab, pg.page + 1) }, "›")) : null;
+  const bar = el("div", { class: "devbar" }, qi, el("label", { class: "inl2" }, onlyCb, " Only with issues"),
+    el("label", { class: "inl2" }, el("span", { class: "muted" }, "Group by"), gsel), dirBtn,
+    el("label", { class: "inl2" }, el("span", { class: "muted" }, "Per page"), perSel), el("span", { class: "muted grow" }, sum), nav, seg);
+  const note = view.truncated ? el("div", { class: "box warnb dnote", id: "dev-cut" }, "Only the first " + view.max_hosts + " monitored hosts are loaded, but Zabbix has more. Raise max_hosts (config.json) to list them all.") : null;
+  const body = !list.length ? el("div", { class: "empty" }, "No devices match the filter.") : mode === "list" ? devTable(pg.groups) : devCards(pg.groups);
+  host.replaceChildren(...[bar, note, body, list.length ? pagerEl(pg, tab) : null].filter(Boolean));      // (replaceChildren would print a null as the text "null")
+  if (keep) { qi.focus(); try { qi.setSelectionRange(keep[0], keep[1]); } catch (e) {} }
+}
+
+// ---------- refresh / reconnect
+let refreshing = false;
+async function refreshNow() {      // new Zabbix session + fresh data right now (otherwise the page follows the 30 s poll)
+  if (refreshing) return;
+  refreshing = true;
+  const b = $("#btn-refresh"), c = $("#chip");
+  b.classList.add("spin"); b.disabled = true; c.textContent = "refreshing…"; c.className = "chip";
+  try { await api("/api/refresh", { body: {} }); } catch (e) { /* the status chip reports the problem below */ }
+  try { await loadView(); } finally { refreshing = false; b.classList.remove("spin"); b.disabled = false; }
+}
+$("#btn-refresh").addEventListener("click", refreshNow);
+
+// ---------- render
+function renderStatus() {
+  const c = $("#chip");
+  if (!status) { c.textContent = "connecting…"; c.className = "chip"; return; }
+  const bad = !status.ok;
+  $("#btn-refresh").classList.toggle("alert", bad);
+  c.className = "chip " + (bad ? "bad" : "ok");
+  const name = status.conn && !DEMO ? status.conn + " · " : "Zabbix ";
+  c.textContent = bad ? "⚠ " + (status.error || "error") : name + (status.version || "") + " · " + status.hosts + " hosts · " + ago(status.last_ok);
+  c.title = (bad ? (status.last_ok ? "Showing data from " + ago(status.last_ok) + ". " : "No data yet. ") : "") + "Click to manage connections (C)";
+}
+function renderHeader() {
+  $("#tabs").replaceChildren(...L.tabs.map(t => el("button", { class: "tab" + (t.id === tabId ? " on" : ""), onclick: () => selectTab(t.id, true) }, t.name)));
+  $("#pl").hidden = !L.playlists.length;
+  const s = $("#pl-select");
+  s.replaceChildren(el("option", { value: "" }, "Playlist…"), ...L.playlists.map(p => el("option", { value: p.id }, p.name)));
+  s.value = play.id || "";
+  $("#btn-edit").hidden = !canEdit; $("#btn-edit").classList.toggle("on", editing);
+  $("#viewonly").hidden = canEdit; $("#demo").hidden = !DEMO;
+  $("#range-wrap").hidden = !(curTab() && curTab().type === "map");      // the graph range only matters on a weathermap
+  renderPlay(); renderCta();
+}
+function renderMain() {
+  const keep = (!tip.hidden && !dragging && !ctxEl) ? tipPt : null;      // the map is redrawn on every poll: a card that is open comes back under the same pointer instead of vanishing
+  tipHide();
+  const main = $("#main"), tab = curTab();
+  if (!tab) { main.replaceChildren(el("div", { class: "empty" }, "No tabs yet." + (canEdit ? " Click Edit to create one." : ""))); return; }
+  if (tab.type === "map") drawMap(main, tab); else drawDevices(main, tab);
+  if (keep) {
+    const at = document.elementFromPoint(keep.clientX, keep.clientY), t = at && at.closest ? at.closest("g.node, polyline[data-lid]") : null;
+    if (t) t.dispatchEvent(new MouseEvent("mouseenter", { clientX: keep.clientX, clientY: keep.clientY }));
+  }
+}
+function render() { renderHeader(); renderStatus(); renderMain(); renderDrawer(); }
+function renderPlay() {
+  const p = curPlaylist();
+  $("#pl-play").textContent = play.running ? "⏸" : "▶";
+  $("#pl-fill").style.width = (play.running && play.total) ? (100 * (1 - play.remaining / play.total)).toFixed(0) + "%" : "0";
+  const t = curTab();
+  $("#hud-text").textContent = (t ? t.name : "") + (play.running && p ? "  ·  " + p.name + "  ·  " + play.remaining + "s" : "");
+}
+
+// ---------- navigation, playlists, kiosk
+function setHash() { const h = new URLSearchParams(); if (tabId) h.set("tab", tabId); if (play.running && play.id) h.set("play", play.id); if (document.body.classList.contains("kiosk")) h.set("kiosk", "1"); if (DISP.range !== DISP.defRange) h.set("range", DISP.range); if (DISP.refresh !== DISP.defRefresh) h.set("refresh", DISP.refresh); history.replaceState(null, "", "#" + h.toString()); }
+function selectTab(id, manual) {
+  if (manual && play.running) { play.running = false; }
+  tabId = id; view = null; sel = null; setHash(); render(); loadView();
+}
+function playStart(id) {
+  const p = L.playlists.find(x => x.id === id);
+  if (!p || !p.items.length) return;
+  play.id = id; play.idx = -1; play.running = true; playNext(1);
+}
+function playNext(dir) {
+  const p = curPlaylist(); if (!p || !p.items.length) return;
+  const n = p.items.length;
+  let i = play.idx;
+  for (let k = 0; k < n; k++) { i = (i + dir + n) % n; if (L.tabs.some(t => t.id === p.items[i].tab)) break; }
+  if (!p.loop && ((dir > 0 && i <= play.idx && play.idx >= 0) || false)) { play.running = false; renderPlay(); return; }
+  play.idx = i; play.total = play.remaining = p.items[i].seconds;
+  tabId = p.items[i].tab; view = null; sel = null; setHash(); render(); loadView();
+}
+function tick() {
+  if (play.running) { play.remaining -= 1; if (play.remaining <= 0) playNext(1); }
+  renderPlay();
+}
+$("#pl-select").addEventListener("change", e => { if (e.target.value) playStart(e.target.value); else { play.running = false; play.id = null; renderHeader(); setHash(); } });
+$("#pl-play").addEventListener("click", () => { if (!play.id) { const f = L.playlists[0]; if (f) playStart(f.id); return; } play.running = !play.running; if (play.running && play.remaining <= 0) playNext(1); renderPlay(); setHash(); });
+$("#pl-next").addEventListener("click", () => { if (!play.id && L.playlists[0]) { playStart(L.playlists[0].id); return; } playNext(1); });
+$("#pl-prev").addEventListener("click", () => { if (!play.id && L.playlists[0]) { playStart(L.playlists[0].id); return; } playNext(-1); });
+function setKiosk(on) { document.body.classList.toggle("kiosk", on); if (on) { editing = false; document.body.classList.remove("editing"); } setHash(); render(); }
+$("#btn-kiosk").addEventListener("click", () => setKiosk(true));
+$("#hud-back").addEventListener("click", () => setKiosk(false));      // the wall-display way out for screens without a keyboard (Esc does the same)
+$("#btn-full").addEventListener("click", () => { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen().catch(() => {}); });
+$("#btn-edit").addEventListener("click", () => { editing = !editing; document.body.classList.toggle("editing", editing); sel = null; render(); });
+addEventListener("keydown", e => {
+  if (!$("#conn").hidden || !$("#mdl").hidden || ctxEl || /^(INPUT|SELECT|TEXTAREA)$/.test(e.target.tagName) || e.ctrlKey || e.metaKey || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "k") setKiosk(!document.body.classList.contains("kiosk"));
+  else if (k === "f") $("#btn-full").click();
+  else if (k === "r") refreshNow();
+  else if (k === "c" && !document.body.classList.contains("kiosk")) openConnections();
+  else if (k === "e" && canEdit && !document.body.classList.contains("kiosk")) $("#btn-edit").click();
+  else if (k === "escape" && document.body.classList.contains("kiosk")) setKiosk(false);
+  else if (e.key === " " && L.playlists.length) { e.preventDefault(); $("#pl-play").click(); }
+  else if (e.key === "ArrowRight" && play.id) playNext(1);
+  else if (e.key === "ArrowLeft" && play.id) playNext(-1);
+});
+let idleT = null;
+addEventListener("mousemove", () => { document.body.classList.remove("idle"); clearTimeout(idleT); idleT = setTimeout(() => document.body.classList.add("idle"), 3000); });
+
+// ---------- data
+async function loadView() {
+  if (dragging) return;
+  const tab = curTab();
+  if (!tab) { renderStatus(); return; }
+  if (dirty) await doSave();   // the server must know about a brand-new tab before we ask it for that tab's data
+  try { const v = await api("/api/view?tab=" + encodeURIComponent(tab.id) + "&every=" + DISP.refresh + "&cid=" + CID); if (tab.id !== tabId || dragging) return; view = v; status = v.status; }
+  catch (e) { status = { ok: false, error: e.message, last_ok: 0 }; }
+  renderStatus(); renderMain();
+}
+
+// ---------- editor
+let saveT = null, saveMsg = "", dirty = false;
+function setSaved(m, bad) { saveMsg = m; const s = $("#saved"); if (s) { s.textContent = m; s.className = bad ? "err" : "muted"; } }
+function scheduleSave() { dirty = true; setSaved("Unsaved changes…"); clearTimeout(saveT); saveT = setTimeout(doSave, 700); }
+async function doSave() {
+  clearTimeout(saveT);
+  try { setSaved("Saving…"); await api("/api/layout", { body: { layout: L } }); dirty = false; setSaved("Saved"); setTimeout(loadView, 2500); }
+  catch (e) { setSaved("Save failed: " + e.message, true); }
+}
+function changed(structural) { scheduleSave(); if (structural) render(); else { renderHeader(); renderMain(); } }
+function select(s) { sel = s; renderMain(); renderDrawer(); }
+const section = (title, ...kids) => el("details", { class: "sec", open: "" }, el("summary", {}, title), el("div", {}, kids));
+const fld = (label, input) => el("label", { class: "fld" }, el("span", {}, label), input);
+function inp(value, onchange, attrs = {}) { const i = el("input", attrs); i.value = value == null ? "" : value; i.addEventListener("change", () => onchange(i.value)); return i; }
+const btn = (text, onclick, cls = "") => el("button", { class: cls, onclick, type: "button" }, text);
+
+const ifCache = new Map();
+function getIfaces(host) {
+  if (!ifCache.has(host)) ifCache.set(host, api("/api/interfaces?host=" + encodeURIComponent(host)).then(r => r.interfaces).catch(e => { ifCache.delete(host); throw e; }));
+  return ifCache.get(host);
+}
+function ifaceControl(host, value, onchange) {
+  const wrap = el("span", { class: "ifc" }), s = el("select", {}, el("option", { value: "" }, "loading…"));
+  s.addEventListener("change", () => onchange(s.value));
+  wrap.append(s);
+  getIfaces(host).then(list => {
+    s.replaceChildren(el("option", { value: "" }, "— interface —"), ...list.map(i => el("option", { value: i.name }, i.name + (i.alias ? " — " + i.alias : ""))));
+    if (value && !list.some(i => i.name === value)) s.append(el("option", { value }, value + " (not found)"));
+    s.value = value || "";
+  }).catch(err => { const t = el("input", { placeholder: "interface name, e.g. Gi0/0/1" }); t.value = value || ""; t.addEventListener("change", () => onchange(t.value)); wrap.replaceChildren(t, el("small", { class: "err" }, err.message)); });
+  return wrap;
+}
+function searchBox(kind, placeholder, onpick) {
+  const i = el("input", { placeholder }), res = el("div", { class: "results" });
+  let t = null;
+  i.addEventListener("input", () => {
+    clearTimeout(t);
+    t = setTimeout(async () => {
+      const q = i.value.trim();
+      if (q.length < 2) { res.replaceChildren(); return; }
+      try { const r = await api("/api/" + kind + "?q=" + encodeURIComponent(q)); res.replaceChildren(...(r.items.length ? r.items.map(it => el("div", { class: "hit", onclick: () => { onpick(it); i.value = ""; res.replaceChildren(); } }, it.name)) : [el("div", { class: "muted pad" }, "No matches")])); }
+      catch (e) { res.replaceChildren(el("div", { class: "err pad" }, e.message)); }
+    }, 300);
+  });
+  return el("div", { class: "search" }, i, res);
+}
+
+function secTabs() {
+  const rows = L.tabs.map((t, i) => el("div", { class: "row" + (t.id === tabId ? " cur" : "") },
+    el("span", { class: "grow link", onclick: () => selectTab(t.id, true) }, t.name, " ", el("small", { class: "muted" }, t.type)),
+    btn("↑", () => moveTab(i, -1), "x"), btn("↓", () => moveTab(i, 1), "x"), btn("✕", () => delTab(i), "x")));
+  const name = el("input", { placeholder: "New tab name" }), type = el("select", {}, el("option", { value: "map" }, "Weathermap"), el("option", { value: "devices" }, "Devices"));
+  return section("Tabs", rows, el("div", { class: "row" }, name, type, btn("Add", () => addTab(name.value, type.value), "primary")));
+}
+function addTab(name, type) {
+  const id = newId("t");
+  if (type === "map") { const mid = newId("m"); L.maps[mid] = { name: name || "Map", width: 1600, height: 900, nodes: [], links: [] }; L.tabs.push({ id, name: name || "Map", type: "map", map: mid }); }
+  else L.tabs.push({ id, name: name || "Devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, style: "list" });
+  changed(false); selectTab(id, true);
+}
+function moveTab(i, d) { const j = i + d; if (j < 0 || j >= L.tabs.length) return; [L.tabs[i], L.tabs[j]] = [L.tabs[j], L.tabs[i]]; changed(true); }
+function delTab(i) {
+  const t = L.tabs[i]; if (!confirm("Delete tab \"" + t.name + "\"?")) return;
+  L.tabs.splice(i, 1);
+  if (t.type === "map" && !L.tabs.some(x => x.map === t.map)) delete L.maps[t.map];
+  for (const p of L.playlists) p.items = p.items.filter(it => it.tab !== t.id);
+  if (tabId === t.id) { tabId = L.tabs[0] ? L.tabs[0].id : null; view = null; loadView(); }
+  changed(true);
+}
+function secTab(tab) {
+  const kids = [fld("Tab name", inp(tab.name, v => { tab.name = v.slice(0, 40) || "Tab"; changed(false); }))];
+  if (tab.type === "map") {
+    const m = L.maps[tab.map];
+    kids.push(el("div", { class: "row" }, fld("Canvas width", inp(m.width, v => { m.width = clamp(parseInt(v) || 1600, 400, 8000); changed(false); }, { type: "number" })), fld("height", inp(m.height, v => { m.height = clamp(parseInt(v) || 900, 300, 8000); changed(false); }, { type: "number" }))));
+  } else {
+    kids.push(el("div", { class: "hint" }, "Shows every host below, all hosts in the listed host groups, and (optionally) every monitored host."));
+    const sty = el("select", {}, el("option", { value: "list" }, "List (table)"), el("option", { value: "cards" }, "Cards")); sty.value = tab.style === "list" ? "list" : "cards";
+    sty.addEventListener("change", () => { tab.style = sty.value; try { localStorage.removeItem("channelview-devview:" + tab.id); } catch (e) {} changed(false); });
+    kids.push(fld("Show devices as", sty));
+    const allCb = el("input", { type: "checkbox", style: "flex:none;width:auto" }); allCb.checked = !!tab.all;
+    allCb.addEventListener("change", () => { tab.all = allCb.checked; changed(true); setTimeout(loadView, 2500); });
+    kids.push(el("label", { class: "row" }, allCb, el("span", {}, "Show all monitored hosts")));
+    if (tab.all) kids.push(el("div", { class: "hint" }, "Lists every enabled host this API user may read - no limit. Long lists are paged: use “Per page” above the list. Hosts disabled in Zabbix are not monitored, so they are not listed."));
+    kids.push(searchBox("hosts", "Add host (type 2+ letters)…", it => { if (!tab.hosts.includes(it.id)) { tab.hosts.push(it.id); tab.hostnames[it.id] = it.name; changed(true); setTimeout(loadView, 2500); } }));
+    for (const h of tab.hosts) kids.push(el("div", { class: "row" }, el("span", { class: "grow" }, tab.hostnames[h] || h), btn("✕", () => { tab.hosts = tab.hosts.filter(x => x !== h); delete tab.hostnames[h]; changed(true); }, "x")));
+    kids.push(searchBox("groups", "Add host group…", it => { if (!tab.groups.includes(it.id)) { tab.groups.push(it.id); changed(true); setTimeout(loadView, 2500); } }));
+    for (const g of tab.groups) kids.push(el("div", { class: "row" }, el("span", { class: "grow" }, "group: " + g), btn("✕", () => { tab.groups = tab.groups.filter(x => x !== g); changed(true); }, "x")));
+    kids.push(fld("Interfaces shown per device (busiest first)", inp(tab.ifaces, v => { tab.ifaces = clamp(parseInt(v) || 0, 0, 12); changed(false); setTimeout(loadView, 300); }, { type: "number" })));
+  }
+  return section("This tab", kids);
+}
+const lf = { a: "", ifA: "", b: "", ifB: "", name: "", mbps: "" };
+function secMap(tab) {
+  const m = L.maps[tab.map], nodeById = id => m.nodes.find(n => n.id === id);
+  const label = n => n.label || n.hostname || n.host;
+  const add = searchBox("hosts", "Add device from Zabbix (type 2+ letters)…", it => {
+    const k = m.nodes.length; m.nodes.push({ id: newId("n"), host: it.id, hostname: it.name, label: "", x: 200 + (k % 6) * 220, y: 140 + Math.floor(k / 6) * 140 });
+    changed(true); setTimeout(loadView, 2500);
+  });
+  const nodeSel = (key, ifKey) => { const s = el("select", {}, el("option", { value: "" }, "— device —"), ...m.nodes.map(n => el("option", { value: n.id }, label(n)))); s.value = lf[key]; s.addEventListener("change", () => { lf[key] = s.value; lf[ifKey] = ""; renderDrawer(); }); return s; };
+  const nA = nodeById(lf.a), nB = nodeById(lf.b);
+  const form = el("div", {},
+    fld("Device A", nodeSel("a", "ifA")), nA ? fld("Interface on A", ifaceControl(nA.host, lf.ifA, v => { lf.ifA = v; })) : null,
+    fld("Device B", nodeSel("b", "ifB")), nB ? fld("Interface on B", ifaceControl(nB.host, lf.ifB, v => { lf.ifB = v; })) : null,
+    fld("Link name (optional)", inp(lf.name, v => { lf.name = v; })),
+    fld("Capacity override in Mbps (optional – for rate-limited circuits)", inp(lf.mbps, v => { lf.mbps = v; }, { type: "number" })),
+    btn("Add link", () => {
+      if (!lf.a || !lf.b || lf.a === lf.b || !lf.ifA || !lf.ifB) { alert("Pick two different devices and an interface on each."); return; }
+      m.links.push({ id: newId("L"), name: lf.name, a: { node: lf.a, if: lf.ifA }, b: { node: lf.b, if: lf.ifB }, bandwidth_bps: lf.mbps ? parseFloat(lf.mbps) * 1e6 : null });
+      Object.assign(lf, { ifA: "", ifB: "", name: "", mbps: "" }); changed(true);
+    }, "primary"));
+  const bulk = (text, fn) => btn(text, () => { for (const l of m.links) fn(l); changed(true); }, "");
+  const secs = [section("Add device", add, el("div", { class: "hint" }, "Click a device or link on the map to edit it. Drag devices to move them (snaps to a 10px grid); every link has one dot in the middle (click a link to see it big) - drag it to bend the link.")), section("Add link", form)];
+  if (m.links.length) secs.push(section("Interface tags on all links", el("div", { class: "row wrap" },
+    bulk("Show all", l => setLinkTags(l, "if_show", true)), bulk("Hide all", l => setLinkTags(l, "if_show", false)),
+    bulk("All above", l => setLinkTags(l, "if_pos", "above")), bulk("All below", l => setLinkTags(l, "if_pos", "below"))),
+    el("div", { class: "hint" }, "The interface names beside each end of a link. For one link only: right-click it, or select it.")));
+  if (m.nodes.length) secs.push(section("Notifications on all devices", el("div", { class: "row wrap" },
+    btn("All on", () => { for (const n of m.nodes) setNodeNotify(n, true); changed(true); }, ""), btn("All off", () => { for (const n of m.nodes) setNodeNotify(n, false); changed(true); }, "")),
+    el("div", { class: "hint" }, "Notifications are the round problem count on a device. Off hides it (a dashed ring marks such devices while you edit; the map itself shows nothing). For one device only: right-click it, or select it.")));
+  const vert = !!(m.legend && m.legend.dir === "v"), lgb = (text, on, fn) => el("button", { type: "button", class: on ? "on" : "", "aria-pressed": String(on), onclick: fn }, text);
+  secs.push(section("Usage meter", el("div", { class: "row wrap" },
+    lgb("Horizontal", !vert, () => { setLegend(m, { dir: "h" }); changed(true); }), lgb("Vertical", vert, () => { setLegend(m, { dir: "v" }); changed(true); }),
+    btn("Reset", () => { delete m.legend; changed(true); }, "")),
+    el("div", { class: "hint" }, "The colour key for link usage. Drag it by its bar on the map to move it (it keeps its place on any screen size and in kiosk); the buttons on its bar do the same as these. Reset = bottom-left, horizontal.")));
+  if (sel) {
+    if (sel.type === "node" && nodeById(sel.id)) {
+      const n = nodeById(sel.id);
+      secs.push(section("Selected device", el("div", { class: "hint" }, n.hostname + " (host " + n.host + ")"), fld("Label (blank = Zabbix name)", inp(n.label, v => { n.label = v.slice(0, 60); changed(false); })),
+        notifyField(n),
+        btn("Remove device and its links", () => askDeleteNode(m, n))));
+    } else if (sel.type === "link") {
+      const l = m.links.find(x => x.id === sel.id);
+      if (l) { const A = nodeById(l.a.node), B = nodeById(l.b.node);
+        secs.push(section("Selected link", fld("Link name", inp(l.name, v => { l.name = v.slice(0, 80); changed(false); })),
+          fld("Interface on " + label(A), ifaceControl(A.host, l.a.if, v => { l.a.if = v; changed(false); setTimeout(loadView, 2500); })),
+          fld("Interface on " + label(B), ifaceControl(B.host, l.b.if, v => { l.b.if = v; changed(false); setTimeout(loadView, 2500); })),
+          fld("Capacity override (Mbps, blank = use Zabbix speed)", inp(l.bandwidth_bps ? l.bandwidth_bps / 1e6 : "", v => { l.bandwidth_bps = v ? parseFloat(v) * 1e6 : null; changed(false); setTimeout(loadView, 300); }, { type: "number" })),
+          fld("Bend points", el("div", { class: "row" }, el("span", { class: "muted", style: "flex:1" }, viaOf(l).length ? "1 point, placed by hand" : "1 point, in the middle"), viaOf(l).length ? btn("Straighten", () => straighten(m, l)) : null)),
+          el("div", { class: "hint" }, "Every link has one bend point, in the middle of the link. Drag the dot to route the link around other devices; Straighten puts it back in the middle."),
+          tagFields(l),
+          btn("Delete link", () => askDeleteLink(m, l)))); }
+    }
+  }
+  return secs;
+}
+function notifyField(n) {      // "Notifications" control of one device: the problem count on the map, on or off
+  const on = el("input", { type: "checkbox", style: "width:auto;flex:none" }); on.checked = nodeNotify(n);
+  on.addEventListener("change", () => { setNodeNotify(n, on.checked); changed(false); });
+  return fld("Notifications (problem count on the device)", el("div", { class: "row" }, el("label", { style: "display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;cursor:pointer" }, on, " show")));
+}
+function tagFields(l) {      // "Interface tags" controls of one link: shown or not, and on which side of the line
+  const on = el("input", { type: "checkbox", style: "width:auto;flex:none" }), pos = el("select", {}, el("option", { value: "above" }, "Above the line"), el("option", { value: "below" }, "Below the line"));
+  on.checked = linkShowIf(l); pos.value = effIfPos(l); pos.disabled = !on.checked;
+  on.addEventListener("change", () => { setLinkTags(l, "if_show", on.checked); changed(true); });
+  pos.addEventListener("change", () => { setLinkTags(l, "if_pos", pos.value); changed(false); });
+  return fld("Interface tags (names beside each end)", el("div", { class: "row" }, el("label", { style: "display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;cursor:pointer" }, on, " show"), pos));
+}
+function secPlaylists() {
+  const tabOpts = () => L.tabs.map(t => el("option", { value: t.id }, t.name));
+  const blocks = L.playlists.map(p => {
+    const items = p.items.map((it, i) => { const s = el("select", {}, tabOpts()); s.value = it.tab; s.addEventListener("change", () => { it.tab = s.value; changed(false); });
+      return el("div", { class: "row" }, s, inp(it.seconds, v => { it.seconds = clamp(parseInt(v) || 20, 3, 3600); changed(false); }, { type: "number", style: "max-width:70px", title: "seconds" }), btn("✕", () => { p.items.splice(i, 1); changed(true); }, "x")); });
+    const lp = el("input", { type: "checkbox", style: "flex:none" }); lp.checked = p.loop; lp.addEventListener("change", () => { p.loop = lp.checked; changed(false); });
+    return el("div", { style: "border:1px solid var(--line);border-radius:8px;padding:8px;margin:8px 0" },
+      el("div", { class: "row" }, inp(p.name, v => { p.name = v.slice(0, 40) || "Playlist"; changed(true); }), btn("Play", () => playStart(p.id)), btn("✕", () => { if (confirm("Delete playlist \"" + p.name + "\"?")) { L.playlists = L.playlists.filter(x => x !== p); if (play.id === p.id) { play.id = null; play.running = false; } changed(true); } }, "x")),
+      items, el("div", { class: "row" }, btn("+ tab", () => { if (L.tabs.length) { p.items.push({ tab: L.tabs[0].id, seconds: 20 }); changed(true); } }), el("label", { class: "muted", style: "flex:1" }, lp, " loop")));
+  });
+  return section("Playlists", blocks, btn("New playlist", () => { L.playlists.push({ id: newId("p"), name: "Playlist " + (L.playlists.length + 1), loop: true, items: L.tabs.map(t => ({ tab: t.id, seconds: 20 })) }); changed(true); }, "primary"),
+    el("div", { class: "hint" }, "Playlists rotate through tabs for wall displays. Open the page with #play=<id>&kiosk=1 to start one automatically (add &per=200 to list more devices per page); press K for kiosk, Esc to leave."));
+}
+function renderDrawer() {
+  const d = $("#drawer");
+  if (!editing || !L) { d.hidden = true; return; }
+  d.hidden = false;
+  const tab = curTab();
+  const parts = [el("div", { class: "drawer-h" }, el("b", {}, "Editor"), btn("Connections…", () => openConnections()), el("span", { id: "saved", class: "muted" }, saveMsg)), secTabs()];
+  if (tab) parts.push(secTab(tab));
+  if (tab && tab.type === "map") parts.push(...secMap(tab));
+  parts.push(secPlaylists());
+  d.replaceChildren(...parts);
+}
+
+// ---------- map: right-click menu + confirmation windows
+let ctxEl = null, ctxHold = 0;      // ctxHold: re-drawing the map right after a Shape / Size click can fire a scroll event - that must not close the menu
+function endCtx() { if (ctxEl) { ctxEl.remove(); ctxEl = null; } }
+function mapItem(target) {
+  const tab = curTab(), m = tab && tab.type === "map" ? L.maps[tab.map] : null;
+  if (!m) return null;
+  const nodeById = id => m.nodes.find(n => n.id === id);
+  if (target.type === "node") { const n = nodeById(target.id); return n ? { m, n } : null; }
+  const l = m.links.find(x => x.id === target.id);
+  return l && nodeById(l.a.node) && nodeById(l.b.node) ? { m, l, A: nodeById(l.a.node), B: nodeById(l.b.node), i: target.index } : null;
+}
+const nodeName = n => n.label || n.hostname || n.host;
+function ctxOpen(e, target) {
+  if (!canEdit || !editing || document.body.classList.contains("kiosk")) return;      // only in edit mode - otherwise the browser's own menu stays
+  const it = mapItem(target);
+  if (!it) return;
+  e.preventDefault(); e.stopPropagation(); tipHide(); endCtx();
+  select(target.type === "via" ? { type: "link", id: target.id } : target);      // the right-clicked item becomes the selected one, so it stays highlighted while its menu / window is open
+  const title = target.type === "node" ? nodeName(it.n) : (it.l.name || nodeName(it.A) + " ↔ " + nodeName(it.B));
+  const item = (icon, text, fn, cls) => el("button", { type: "button", role: "menuitem", class: cls || "", onclick: ev => { ev.stopPropagation(); endCtx(); fn(); } }, el("span", { class: "ci" }, icon), text);
+  // Shape / Size apply at once (no confirmation - nothing is lost) and the menu stays open so several can be tried; the pressed button shows the current choice.
+  const cur = { shape: () => nodeShape(it.n), size: () => nodeSize(it.n), notify: () => nodeNotify(it.n) ? "on" : "off", if_show: () => linkShowIf(it.l) ? "show" : "hide", if_pos: () => effIfPos(it.l) };
+  const styleRow = (label, key, choices) => el("div", { class: "ctx-row" }, el("span", { class: "ctx-l" }, label),
+    el("div", { class: "opts", role: "group", "aria-label": label }, choices.map(([val, txt, name]) => el("button", {
+      type: "button", class: "opt", title: name, "aria-label": label + ": " + name, "data-key": key, "data-val": val, "aria-pressed": String(cur[key]() === val),
+      onclick: ev => {
+        ev.stopPropagation(); ctxHold = performance.now() + 500;
+        if (key === "if_show") setLinkTags(it.l, key, val === "show"); else if (key === "if_pos") setLinkTags(it.l, key, val);
+        else if (key === "notify") setNodeNotify(it.n, val === "on");
+        else if (val === (key === "shape" ? "square" : "medium")) delete it.n[key]; else it.n[key] = val;      // defaults are not stored
+        changed(true);
+        for (const b of ctxEl.querySelectorAll(".opt")) b.setAttribute("aria-pressed", String(cur[b.dataset.key]() === b.dataset.val));
+      },
+    }, txt))));
+  const isNode = target.type === "node", isVia = target.type === "via", sep = () => el("div", { class: "ctx-sep" });
+  const manual = !isNode && viaOf(it.l).length > 0, undo = () => straighten(it.m, it.l);
+  ctxEl = el("div", { class: "ctx", role: "menu", "aria-label": "Actions" },
+    el("div", { class: "ctx-h" }, el("b", {}, title), isNode ? "Device" : isVia ? "Bend point" : "Link"),
+    isVia ? item("╱", "Straighten link (bend point back to the middle)", undo)
+      : item("✎", "Modify…", () => isNode ? modifyNode(it.m, it.n) : modifyLink(it.m, it.l)),
+    isNode ? [sep(), styleRow("Shape", "shape", [["square", "■", "Square"], ["circle", "●", "Circle"], ["triangle", "▲", "Triangle"]]),
+      styleRow("Size", "size", [["small", "S", "Small"], ["medium", "M", "Medium"], ["large", "L", "Large"], ["xlarge", "XL", "Extra large"]]),
+      styleRow("Notifications", "notify", [["on", "On", "Show the problem count on this device"], ["off", "Off", "Hide the problem count on this device"]]), sep()] : null,
+    !isNode && !isVia ? [manual ? item("╱", "Straighten link (bend point back to the middle)", undo) : null, manual ? sep() : null,
+      styleRow("Interface tags", "if_show", [["show", "Show", "Show the interface names on this link"], ["hide", "Hide", "Hide the interface names on this link"]]),
+      styleRow("Tag side", "if_pos", [["above", "Above", "Interface names above the line"], ["below", "Below", "Interface names below the line"]]), sep()] : null,
+    isVia ? null : item("🗑", "Delete…", () => isNode ? askDeleteNode(it.m, it.n) : askDeleteLink(it.m, it.l), "danger"));
+  document.body.append(ctxEl);
+  const r = ctxEl.getBoundingClientRect();
+  let left = e.clientX;
+  const nodeEl = isNode ? document.querySelector('#main svg.map g.node[data-id="' + target.id + '"]') : null;
+  if (nodeEl) {      // beside the device, not on top of it, so a Shape / Size change can be watched while the menu is open
+    const nb = nodeEl.getBoundingClientRect(), roomR = innerWidth - nb.right - 14 >= r.width, roomL = nb.left - 14 >= r.width;
+    if (e.clientX >= (nb.left + nb.right) / 2 ? roomR : !roomL && roomR) left = nb.right + 8; else if (roomL) left = nb.left - r.width - 8;
+  }
+  ctxEl.style.left = Math.max(4, Math.min(left, innerWidth - r.width - 6)) + "px";
+  ctxEl.style.top = Math.max(4, Math.min(e.clientY, innerHeight - r.height - 6)) + "px";
+  const first = ctxEl.querySelector("button"); if (first) first.focus();
+}
+document.addEventListener("pointerdown", e => { if (ctxEl && !ctxEl.contains(e.target)) endCtx(); }, true);
+document.addEventListener("scroll", () => { if (performance.now() > ctxHold) endCtx(); }, true);
+addEventListener("resize", () => endCtx());
+addEventListener("blur", () => endCtx());
+addEventListener("keydown", e => {
+  if (e.key === "Escape") { if (!$("#mdl").hidden) closeModal(); else if (ctxEl) endCtx(); return; }
+  if (ctxEl && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault(); const bs = [...ctxEl.querySelectorAll("button")], i = bs.indexOf(document.activeElement);
+    bs[(i + (e.key === "ArrowDown" ? 1 : -1) + bs.length) % bs.length].focus();
+  }
+});
+
+// A small confirmation window used by Modify and Delete (and by the editor's own delete buttons).
+function closeModal() { const m = $("#mdl"); m.hidden = true; m.replaceChildren(); }
+function openModal(title, kids, actions) {
+  const m = $("#mdl"), box = el("div", { class: "mbox", role: "dialog", "aria-modal": "true", "aria-label": title },
+    el("div", { class: "mh" }, el("b", {}, title), btn("✕", closeModal, "x")), el("div", { class: "mb" }, kids), el("div", { class: "mf" }, actions));
+  m.replaceChildren(box); m.hidden = false;
+  m.onmousedown = e => { if (e.target === m) closeModal(); };
+  box.addEventListener("keydown", e => { if (e.key === "Enter" && e.target.tagName === "INPUT") { e.preventDefault(); const p = box.querySelector(".mf .primary, .mf .dangerbtn"); if (p) p.click(); } });
+  const f = box.querySelector(".mb input, .mb select, .mb button"), p = box.querySelector(".mf .primary, .mf .dangerbtn");
+  (f || box.querySelector(".mf button") || box).focus();
+  return box;
+}
+const mErr = box => { let e = box.querySelector(".merr"); if (!e) { e = el("div", { class: "box badb merr" }); box.querySelector(".mb").append(e); } return e; };
+
+function askDeleteNode(m, n) {
+  const links = m.links.filter(l => l.a.node === n.id || l.b.node === n.id), by = id => m.nodes.find(x => x.id === id);
+  openModal("Delete device?", [
+    el("p", {}, "Remove ", el("b", {}, nodeName(n)), " from this map?"),
+    links.length ? el("div", { class: "box warnb" }, "The " + links.length + " link" + (links.length > 1 ? "s" : "") + " attached to it will be deleted as well:",
+      el("ul", {}, links.map(l => { const o = by(l.a.node === n.id ? l.b.node : l.a.node); return el("li", {}, (l.name ? l.name + " – " : "") + nodeName(n) + " " + (l.a.node === n.id ? l.a.if : l.b.if) + " ↔ " + (o ? nodeName(o) : "?") + " " + (l.a.node === n.id ? l.b.if : l.a.if)); }))) : null,
+    el("p", { class: "muted" }, "This only changes the map. The host itself stays in Zabbix.")],
+    [btn("Cancel", closeModal), btn("Delete", () => {
+      m.nodes = m.nodes.filter(x => x !== n); m.links = m.links.filter(l => l.a.node !== n.id && l.b.node !== n.id);
+      sel = null; closeModal(); changed(true); setTimeout(loadView, 300);
+    }, "dangerbtn")]);
+}
+function askDeleteLink(m, l) {
+  const A = m.nodes.find(x => x.id === l.a.node), B = m.nodes.find(x => x.id === l.b.node);
+  openModal("Delete link?", [
+    el("p", {}, "Delete the link ", el("b", {}, l.name || "(unnamed)"), "?"),
+    el("div", { class: "box infob" }, (A ? nodeName(A) : "?") + "  " + l.a.if, el("br"), (B ? nodeName(B) : "?") + "  " + l.b.if),
+    el("p", { class: "muted" }, "The two devices stay on the map.")],
+    [btn("Cancel", closeModal), btn("Delete", () => { m.links = m.links.filter(x => x !== l); sel = null; closeModal(); changed(true); }, "dangerbtn")]);
+}
+function modifyNode(m, n) {
+  const label = el("input", { placeholder: "blank = " + (n.hostname || n.host), spellcheck: "false", maxlength: "60" }); label.value = n.label || "";
+  const x = el("input", { type: "number", step: "10" }), y = el("input", { type: "number", step: "10" }); x.value = n.x; y.value = n.y;
+  const nt = el("input", { type: "checkbox", style: "width:auto;flex:none" }); nt.checked = nodeNotify(n);
+  const box = openModal("Modify device", [
+    el("div", { class: "hint" }, "Zabbix host: " + (n.hostname || "?") + " (id " + n.host + ")"),
+    fld("Label shown on the map", label),
+    el("div", { class: "row" }, fld("Position X", x), fld("Position Y", y)),
+    el("div", { class: "hint" }, "Positions snap to a 10 px grid. You can also drag the device on the map while editing."),
+    el("label", { class: "row", style: "cursor:pointer" }, nt, el("span", {}, "Notifications: show the problem count on this device"))],
+    [btn("Cancel", closeModal), btn("Save changes", () => {
+      const nx = parseFloat(x.value), ny = parseFloat(y.value);
+      if (!isFinite(nx) || !isFinite(ny)) { mErr(box).textContent = "Position must be numbers."; return; }
+      n.label = label.value.trim().slice(0, 60); n.x = clamp(Math.round(nx / 10) * 10, 0, m.width); n.y = clamp(Math.round(ny / 10) * 10, 0, m.height); setNodeNotify(n, nt.checked);
+      closeModal(); changed(true);
+    }, "primary")]);
+}
+function modifyLink(m, l) {
+  const A = m.nodes.find(x => x.id === l.a.node), B = m.nodes.find(x => x.id === l.b.node), d = { ifA: l.a.if, ifB: l.b.if };
+  const name = el("input", { spellcheck: "false", maxlength: "80" }); name.value = l.name || "";
+  const mbps = el("input", { type: "number", min: "0", step: "any", placeholder: "blank = use the speed Zabbix reports" }); mbps.value = l.bandwidth_bps ? l.bandwidth_bps / 1e6 : "";
+  const tOn = el("input", { type: "checkbox", style: "width:auto;flex:none" }), tPos = el("select", {}, el("option", { value: "above" }, "Above the line"), el("option", { value: "below" }, "Below the line"));
+  let tMoved = false;      // the side is only fixed if the select was touched, otherwise the link keeps its automatic side
+  tOn.checked = linkShowIf(l); tPos.value = effIfPos(l); tPos.disabled = !tOn.checked; tOn.addEventListener("change", () => { tPos.disabled = !tOn.checked; }); tPos.addEventListener("change", () => { tMoved = true; });
+  const box = openModal("Modify link", [
+    fld("Link name (optional)", name),
+    fld("Interface on " + nodeName(A), ifaceControl(A.host, d.ifA, v => { d.ifA = v; })),
+    fld("Interface on " + nodeName(B), ifaceControl(B.host, d.ifB, v => { d.ifB = v; })),
+    fld("Capacity override in Mbps (optional – for rate-limited circuits)", mbps),
+    fld("Interface tags (names beside each end)", el("div", { class: "row" }, el("label", { style: "display:inline-flex;align-items:center;gap:6px;flex:none;white-space:nowrap;cursor:pointer" }, tOn, " show"), tPos))],
+    [btn("Cancel", closeModal), btn("Save changes", () => {
+      const cap = mbps.value.trim() === "" ? null : parseFloat(mbps.value);
+      if (!d.ifA || !d.ifB) { mErr(box).textContent = "Pick an interface on both devices."; return; }
+      if (cap !== null && !(cap > 0)) { mErr(box).textContent = "Capacity must be a positive number of Mbps, or blank."; return; }
+      l.name = name.value.trim().slice(0, 80); l.a.if = d.ifA; l.b.if = d.ifB; l.bandwidth_bps = cap === null ? null : cap * 1e6;
+      setLinkTags(l, "if_show", tOn.checked); if (tMoved) setLinkTags(l, "if_pos", tPos.value);
+      closeModal(); changed(true); setTimeout(loadView, 300);
+    }, "primary")]);
+}
+
+// ---------- connections menu
+// Works against whichever backend serves the page: the Python server, or the in-browser one in the standalone HTML file.
+const CONN = { data: null, sel: null, draft: null, result: null, busy: false, mode: "server", msg: "" };
+const NEW_ID = "__new__";
+const cta = { dismissed: false };
+try { cta.dismissed = sessionStorage.getItem("ctaDismissed") === "1"; } catch (e) {}
+
+function renderCta() {
+  const c = $("#cta");
+  const show = DEMO && !cta.dismissed && $("#conn").hidden && !document.body.classList.contains("kiosk");
+  c.hidden = !show;
+  if (!show) return;
+  c.replaceChildren(el("span", {}, "You are looking at demo data."), btn("Connect to Zabbix", () => openConnections(), "primary"),
+    btn("✕", () => { cta.dismissed = true; try { sessionStorage.setItem("ctaDismissed", "1"); } catch (e) {} renderCta(); }, "x"));
+}
+const dlgShell = body => el("div", { class: "dlg", role: "dialog", "aria-label": "Connections to Zabbix" }, el("div", { class: "dlg-h" }, el("b", {}, "Connections to Zabbix"), btn("✕", closeConnections, "x")), body);
+function closeConnections() { $("#conn").hidden = true; renderCta(); }
+async function openConnections(msg) {
+  CONN.msg = msg || ""; CONN.result = null;
+  const box = $("#conn"); box.hidden = false; renderCta();
+  box.replaceChildren(dlgShell(el("div", { class: "empty" }, "Loading…")));
+  if (!canEdit) { box.replaceChildren(dlgShell(el("div", { class: "box warnb", style: "margin:16px" }, "Connections can only be changed from the machine running the dashboard, or by opening the page with ?token=… (see the start-up message)."))); return; }
+  try { CONN.data = await api("/api/connections"); }
+  catch (e) { box.replaceChildren(dlgShell(el("div", { class: "box badb", style: "margin:16px" }, e.message))); return; }
+  CONN.mode = CONN.data.mode;
+  const a = CONN.data.active, known = a === "demo" || CONN.data.profiles.some(p => p.id === a);
+  pickConn(known && a ? a : (CONN.data.profiles.length ? CONN.data.profiles[0].id : NEW_ID));
+}
+function pickConn(id) {
+  CONN.sel = id; CONN.result = null;
+  if (id === NEW_ID) CONN.draft = { id: null, name: "", url: "", auth: "token", token: "", username: "", password: "", verify_tls: true, remember: true, match: {}, has_secret: false };
+  else if (id !== "demo") { const p = CONN.data.profiles.find(x => x.id === id); CONN.draft = Object.assign({ token: "", password: "", remember: true }, JSON.parse(JSON.stringify(p))); }
+  renderConn();
+}
+const pitem = (id, name, sub, inUse) => el("button", { class: "pitem" + (CONN.sel === id ? " on" : ""), type: "button", onclick: () => pickConn(id) },
+  inUse ? el("span", { class: "use" }, "● in use") : null, el("b", {}, name), el("small", {}, sub));
+function renderConn() {
+  const d = CONN.data;
+  const list = el("div", { class: "plist" }, pitem("demo", "Demo data", "Simulated Cisco network", d.active === "demo"),
+    ...d.profiles.map(p => pitem(p.id, p.name, p.url, d.active === p.id)),
+    btn("+ New connection", () => pickConn(NEW_ID), CONN.sel === NEW_ID ? "primary" : ""));
+  $("#conn").replaceChildren(dlgShell(el("div", { class: "dlg-b" }, list, el("div", { class: "pform" }, CONN.sel === "demo" ? demoPane() : formPane()))));
+  setResult(CONN.result);
+}
+const msgBox = () => CONN.msg ? el("div", { class: "box infob" }, CONN.msg) : null;
+function demoPane() {
+  const using = CONN.data.active === "demo";
+  return el("div", {}, msgBox(), el("h3", {}, "Demo data"),
+    el("p", { class: "muted" }, "A simulated Cisco network - 8 core / WAN devices with 10 links, plus 120 access switches on the “All devices” tab to try paging - so you can look around without a Zabbix server."),
+    el("div", { class: "acts" }, using ? el("span", { class: "chip ok" }, "Currently in use") : btn("Use demo data", () => activateConn("demo"), "primary"),
+      btn("Reset sample layout", resetDemo)), el("div", { id: "conn-result" }));
+}
+function formPane() {
+  const dr = CONN.draft, ro = !!dr.readonly, standalone = CONN.mode === "standalone", isNew = CONN.sel === NEW_ID;
+  const text = (k, attrs = {}) => { const i = el("input", Object.assign({ spellcheck: "false", autocomplete: "off" }, attrs)); i.value = dr[k] || ""; i.disabled = ro; i.addEventListener("input", () => { dr[k] = i.value; }); return i; };
+  const secret = (k, ph) => {
+    const i = el("input", { type: "password", autocomplete: "new-password", spellcheck: "false", placeholder: dr.has_secret ? "•••••••• saved – leave blank to keep it" : ph });
+    i.value = dr[k] || ""; i.disabled = ro; i.addEventListener("input", () => { dr[k] = i.value; });
+    const show = btn("show", () => { i.type = i.type === "password" ? "text" : "password"; show.textContent = i.type === "password" ? "show" : "hide"; });
+    return el("div", { class: "row" }, i, show);
+  };
+  const radio = (val, label) => { const r = el("input", { type: "radio", name: "cauth" }); r.checked = dr.auth === val; r.disabled = ro; r.addEventListener("change", () => { dr.auth = val; CONN.result = null; renderConn(); }); return el("label", {}, r, " " + label); };
+  const check = (k, label, note) => { const c = el("input", { type: "checkbox" }); c.checked = !!dr[k]; c.disabled = ro; c.addEventListener("change", () => { dr[k] = c.checked; }); return el("label", { class: "inl" }, c, el("span", {}, label, note ? el("small", { class: "muted" }, " " + note) : null)); };
+  const defs = CONN.data.match_defaults || {};
+  const labels = { in_key: "Inbound traffic item key starts with", out_key: "Outbound traffic item key starts with", status_key: "Operational status item key starts with", speed_key: "Speed item key starts with",
+    tag_name: "Item tag that holds the interface name", alias_tag: "Item tag that holds the interface description", name_regex: "Fallback: regex on the item name (needs a named group ifname)" };
+  const adv = el("details", { class: "sec", style: "border:1px solid var(--line);border-radius:8px;margin:12px 0" }, el("summary", {}, "Advanced: how interface items are recognised"),
+    el("div", {}, el("div", { class: "hint" }, "The defaults fit the stock Cisco / SNMP templates. Change them only if your templates use other item keys."),
+      ...Object.keys(labels).map(k => { const i = el("input", { placeholder: defs[k] || "", spellcheck: "false" }); i.value = (dr.match && dr.match[k]) || ""; i.disabled = ro; i.addEventListener("input", () => { dr.match = dr.match || {}; if (i.value.trim()) dr.match[k] = i.value; else delete dr.match[k]; }); return fld(labels[k], i); })));
+  return el("div", {}, msgBox(), el("h3", {}, isNew ? "New connection" : dr.name),
+    ro ? el("div", { class: "box infob" }, "This connection comes from config.json / environment variables, so it is read-only here. You can still test and use it.") : null,
+    fld("Name", text("name", { placeholder: "e.g. Production Zabbix" })),
+    fld("Zabbix address / API URL", text("url", { placeholder: "https://zabbix.example.com/api_jsonrpc.php" })),
+    el("div", { class: "hint" }, "The server address alone is enough, /api_jsonrpc.php is added for you. Zabbix 7.0."),
+    el("div", { class: "fld" }, el("span", {}, "Authentication"), el("div", { class: "radios" }, radio("token", "API token (recommended)"), radio("password", "Username & password"))),
+    dr.auth === "token" ? fld("API token (Zabbix: Users > API tokens)", secret("token", "paste the API token")) : el("div", {}, fld("Username", text("username")), fld("Password", secret("password", ""))),
+    standalone ? check("remember", "Remember the secret in this browser", "(kept unencrypted in this browser's local storage; use a read-only token)") : check("verify_tls", "Verify the HTTPS certificate", "(untick only for a self-signed certificate)"),
+    adv,
+    el("div", { class: "acts" }, btn("Test connection", runTest), ro ? btn("Use this connection", () => activateConn(dr.id), "primary") : btn("Save & use", () => saveConn(true), "primary"),
+      ro ? null : btn("Save", () => saveConn(false)), (!ro && !isNew) ? btn("Delete", deleteConn, "x") : null),
+    el("div", { id: "conn-result" }),
+    el("div", { class: "box infob" }, standalone
+      ? [el("b", {}, "Browser mode. "), "This page calls your Zabbix straight from the browser, so Zabbix's web server must allow it (CORS), or this file must be served from the Zabbix server itself. The Test button tells you if that is the problem and how to fix it."]
+      : [el("b", {}, "Server mode. "), "The dashboard server calls Zabbix for you, so there are no browser (CORS) limits. The secret stays on the server and is never sent to the browser."]));
+}
+const payload = () => { const d = CONN.draft; return { id: d.id, name: d.name, url: d.url, auth: d.auth, token: d.auth === "token" ? d.token : "", username: d.auth === "password" ? d.username : "", password: d.auth === "password" ? d.password : "", verify_tls: d.verify_tls, remember: d.remember, match: d.match || {} }; };
+const NGINX = "location = /api_jsonrpc.php {\n    add_header Access-Control-Allow-Origin  \"*\" always;\n    add_header Access-Control-Allow-Headers \"Content-Type, Authorization\" always;\n    add_header Access-Control-Allow-Methods \"POST, OPTIONS\" always;\n    if ($request_method = OPTIONS) { return 204; }\n    # keep the fastcgi_pass / include lines you already have for PHP here\n}";
+const APACHE = "<Location \"/api_jsonrpc.php\">\n    Header always set Access-Control-Allow-Origin \"*\"\n    Header always set Access-Control-Allow-Headers \"Content-Type, Authorization\"\n    Header always set Access-Control-Allow-Methods \"POST, OPTIONS\"\n</Location>\nRewriteEngine On\nRewriteCond %{REQUEST_METHOD} OPTIONS\nRewriteRule ^/api_jsonrpc\\.php$ - [R=204,L]";
+function corsHelp() {
+  return el("div", { class: "box infob" }, el("b", {}, "How to let this page call Zabbix"),
+    el("div", {}, "A browser only lets a page talk to another server if that server agrees (CORS). Pick one:"),
+    el("ol", {},
+      el("li", {}, el("b", {}, "Easiest: serve this file from the Zabbix web server."), " Copy it into the Zabbix frontend folder (often /usr/share/zabbix/), open https://YOUR-ZABBIX/<file name> and use api_jsonrpc.php as the address. Same server, so no CORS."),
+      el("li", {}, el("b", {}, "Or let Zabbix's web server answer browser calls."), " Add CORS headers for api_jsonrpc.php (adapt to your setup, reload the web server, test again):", el("pre", {}, NGINX), el("pre", {}, APACHE),
+        el("small", {}, "Access-Control-Allow-Origin: * lets any web page try the API (it still needs a valid token). Use a read-only token.")),
+      el("li", {}, el("b", {}, "Or run the Python version"), " (channelview.py). It calls Zabbix itself, so there is no CORS and the token never reaches the browser.")));
+}
+function setResult(r) {
+  const out = $("#conn-result"); if (!out) return;
+  if (!r) { out.replaceChildren(); return; }
+  if (r.pending) { out.replaceChildren(el("div", { class: "box infob" }, r.text || "Testing… contacting Zabbix")); return; }
+  if (r.saved) { out.replaceChildren(el("div", { class: "box okb" }, "Saved.")); return; }
+  if (r.ok) {
+    const kids = [el("b", {}, "✓ Connected to Zabbix " + r.version),
+      el("div", {}, r.hosts + " monitored host" + (r.hosts === 1 ? "" : "s") + " · " + (r.proxies == null ? "proxies: n/a" : r.proxies + (r.proxies === 1 ? " proxy" : " proxies")) + " · " + r.interface_items + " interface items found")];
+    if (r.sample && r.sample.length) kids.push(el("div", { class: "samples" }, ...r.sample.map(h => el("span", {}, el("i", { class: "dot", style: "width:8px;height:8px;margin-right:6px;background:" + (h.status === "up" ? "var(--ok)" : h.status === "down" ? "var(--bad)" : "var(--muted)") }), h.name)), r.hosts > r.sample.length ? el("span", { class: "muted" }, "+" + (r.hosts - r.sample.length) + " more") : null));
+    out.replaceChildren(el("div", { class: "box okb" }, kids));
+    if (!r.interface_items) out.append(el("div", { class: "box warnb" }, "No interface items matched (net.if.in[ / net.if.out[ …). Hosts will show up, but links will have no traffic data. Open “Advanced” above and set the item key prefixes your templates use."));
+    return;
+  }
+  out.replaceChildren(el("div", { class: "box badb" }, el("b", {}, "✗ " + (r.error || "Connection failed")), r.hint ? el("div", { style: "margin-top:4px" }, r.hint) : null));
+  if (r.kind === "cors") out.append(corsHelp());
+}
+async function runTest() {
+  if (CONN.busy) return;
+  CONN.busy = true; setResult({ pending: true });
+  try { CONN.result = await api("/api/connections/test", { body: { profile: payload() } }); }
+  catch (e) { CONN.result = { ok: false, error: e.message, kind: "api" }; }
+  CONN.busy = false; setResult(CONN.result);
+  return CONN.result;
+}
+function goLive() { try { history.replaceState(null, "", location.pathname + location.search); } catch (e) {} location.reload(); }
+async function saveConn(use) {
+  if (use) { const r = await runTest(); if (!r || !r.ok) return; }     // "Save & use" only switches once the test passed
+  try {
+    const r = await api("/api/connections/save", { body: { profile: payload(), activate: use } });
+    if (use) { goLive(); return; }
+    CONN.data = r; pickConn(r.id); CONN.result = { saved: true }; setResult(CONN.result);
+  } catch (e) { CONN.result = { ok: false, error: e.message, kind: "api" }; setResult(CONN.result); }
+}
+async function activateConn(id) {
+  try { await api("/api/connections/activate", { body: { id } }); goLive(); }
+  catch (e) { CONN.result = { ok: false, error: e.message, kind: "api" }; setResult(CONN.result); }
+}
+async function deleteConn() {
+  if (!confirm("Delete the connection \"" + (CONN.draft.name || "") + "\"? Its saved layout stays on disk but is no longer used.")) return;
+  const wasActive = CONN.data.active === CONN.draft.id;
+  try { const r = await api("/api/connections/delete", { body: { id: CONN.draft.id } }); if (wasActive) { goLive(); return; } CONN.data = r; pickConn(r.profiles.length ? r.profiles[0].id : "demo"); }
+  catch (e) { CONN.result = { ok: false, error: e.message, kind: "api" }; setResult(CONN.result); }
+}
+async function resetDemo() {
+  if (!confirm("Discard your changes to the demo layout and restore the sample?")) return;
+  try { await api("/api/connections/reset-demo", { body: {} }); if (CONN.data.active === "demo") goLive(); else { CONN.result = { saved: true }; setResult(CONN.result); } }
+  catch (e) { CONN.result = { ok: false, error: e.message, kind: "api" }; setResult(CONN.result); }
+}
+$("#chip").addEventListener("click", () => openConnections());
+$("#chip").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); openConnections(); } });
+$("#conn").addEventListener("mousedown", e => { if (e.target === e.currentTarget) closeConnections(); });
+addEventListener("keydown", e => { if (e.key === "Escape" && !$("#conn").hidden) closeConnections(); });
+
+// ---------- boot
+async function boot() {
+  let r;
+  try {
+    r = await api("/api/layout");
+    L = r.layout; canEdit = r.can_edit; DEMO = !!r.demo; CONN.mode = r.mode || "server";
+    for (const m of Object.values(L.maps)) for (const l of m.links) fitVia(m, l);      // links bent by earlier versions with several bend points: keep the one that matters
+  } catch (e) { $("#main").replaceChildren(el("div", { class: "empty err" }, "Cannot load the dashboard: " + e.message)); return; }
+  const h = new URLSearchParams(location.hash.slice(1));
+  initDisp(r.defaults, h);
+  tabId = (h.get("tab") && L.tabs.some(t => t.id === h.get("tab"))) ? h.get("tab") : (L.tabs[0] && L.tabs[0].id);
+  if (h.get("kiosk")) document.body.classList.add("kiosk");
+  const per = parseInt(h.get("per"), 10);
+  if (PER_CHOICES.includes(per)) { DEVUI.per = per; saveDevUI(); }      // e.g. a wall display: ...#kiosk=1&per=200
+  if (h.get("play") && L.playlists.some(p => p.id === h.get("play"))) playStart(h.get("play"));
+  render(); loadView();
+  scheduleRefresh(); setInterval(tick, 1000);
+  if (r.unconfigured && canEdit && !h.get("kiosk")) openConnections("Add your Zabbix server to see your own devices.");
+}
+boot();
+</script>
+</body>
+</html>

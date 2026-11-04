@@ -1,0 +1,48 @@
+#!/bin/sh
+set -e
+
+SVC_USER=channelview
+DATA=/var/lib/channelview
+
+if [ "$1" = "configure" ]; then
+    if ! getent passwd "$SVC_USER" >/dev/null 2>&1; then
+        adduser --system --group --quiet --home "$DATA" --no-create-home --shell /usr/sbin/nologin --gecos "Zabbix dashboard" "$SVC_USER"
+    fi
+    # systemd's StateDirectory= makes this too when the service starts; this covers manual runs and systems without systemd.
+    install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
+fi
+
+if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper unmask 'channelview.service' >/dev/null || true
+        # was-enabled is true on a first installation (the service gets enabled) and stays false when the administrator disabled it.
+        if deb-systemd-helper --quiet was-enabled 'channelview.service'; then
+            deb-systemd-helper enable 'channelview.service' >/dev/null || true
+        else
+            deb-systemd-helper update-state 'channelview.service' >/dev/null || true
+        fi
+        # The nightly update check is NOT switched on: it installs software unattended, so the administrator chooses.
+        deb-systemd-helper update-state 'channelview-update.timer' >/dev/null || true
+    fi
+    if [ -d /run/systemd/system ]; then
+        systemctl --system daemon-reload >/dev/null || true
+        if command -v deb-systemd-invoke >/dev/null 2>&1; then
+            if [ -n "$2" ]; then action=restart; else action=start; fi      # $2 = the previous version: this is an upgrade
+            deb-systemd-invoke "$action" 'channelview.service' >/dev/null || true
+        fi
+    fi
+fi
+
+if [ "$1" = "configure" ] && [ -z "$2" ]; then
+    cat <<MSG
+
+channelview is installed and running on http://127.0.0.1:8088/ (this machine only).
+  * Add your Zabbix server: open that page, click the status chip at the top, enter the URL and an API token.
+  * Other PCs / wall displays: set CHANNELVIEW_HOST=0.0.0.0 in /etc/default/channelview, then: sudo systemctl restart channelview
+    (editing from another PC needs the edit token:  sudo cat /var/lib/channelview/edit_token )
+  * HTTPS:  sudo channelview-cert   and follow what it prints
+  * Updates from GitHub:  sudo channelview-update      Logs:  journalctl -u channelview
+MSG
+fi
+
+exit 0

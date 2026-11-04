@@ -1,0 +1,34 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ]; then
+    systemctl --system daemon-reload >/dev/null || true
+fi
+
+if [ "$1" = "remove" ] && command -v deb-systemd-helper >/dev/null 2>&1; then
+    deb-systemd-helper mask 'channelview.service' 'channelview-update.timer' >/dev/null || true
+fi
+
+if [ "$1" = "purge" ]; then
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        deb-systemd-helper purge 'channelview.service' 'channelview-update.timer' >/dev/null || true
+        deb-systemd-helper unmask 'channelview.service' 'channelview-update.timer' >/dev/null || true
+    fi
+    rm -rf /var/cache/channelview-update
+    rmdir /etc/channelview 2>/dev/null || true
+    if [ -d /etc/channelview ]; then
+        cat <<'MSG'
+channelview: /etc/channelview (the HTTPS certificate and key from channelview-cert, the update signing key) was kept. To remove it:
+    sudo rm -rf /etc/channelview
+MSG
+    fi
+    if [ -d /var/lib/channelview ]; then
+        cat <<'MSG'
+channelview: /var/lib/channelview (your layouts, the saved Zabbix connection with its API token, the edit token) and the
+channelview system user were kept, so a reinstall picks up where you left off. To remove them for good:
+    sudo rm -rf /var/lib/channelview && sudo deluser --system channelview
+MSG
+    fi
+fi
+
+exit 0

@@ -1,0 +1,103 @@
+#!/bin/sh
+# channelview-cert - make a self-signed HTTPS certificate for the dashboard.
+#
+#   sudo channelview-cert                          certificate for this machine's names and addresses
+#   sudo channelview-cert --name noc.example.com --ip 10.0.0.5     only these (localhost and 127.0.0.1 are always included)
+#   sudo channelview-cert --days 365 --force       replace an existing certificate (the running dashboard uses the new one within seconds)
+#
+# Writes /etc/channelview/tls/server.crt and server.key (the key readable by root and the channelview group only) and prints what to put
+# into /etc/default/channelview. Browsers warn about a self-signed certificate until the certificate is trusted on the PC (or kiosk) that
+# opens the page: copy server.crt there and import it as a trusted certificate. With a certificate from your own CA or Let's Encrypt, point
+# CHANNELVIEW_TLS_CERT / CHANNELVIEW_TLS_KEY at those files instead - this script is then not needed.
+set -eu
+
+dir=/etc/channelview/tls
+days=825
+force=no
+names=""
+ips=""
+
+die() { echo "channelview-cert: $*" >&2; exit 1; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --name) [ $# -ge 2 ] || die "--name needs a value"; names="$names $2"; shift 2 ;;
+        --ip) [ $# -ge 2 ] || die "--ip needs a value"; ips="$ips $2"; shift 2 ;;
+        --days) [ $# -ge 2 ] || die "--days needs a value"; days="$2"; shift 2 ;;
+        --force) force=yes; shift ;;
+        -h|--help) sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option $1 (see --help)" ;;
+    esac
+done
+
+[ "$(id -u)" = 0 ] || die "run as root (sudo channelview-cert)"
+command -v openssl >/dev/null 2>&1 || die "openssl not found (apt install openssl)"
+case "$days" in ''|*[!0-9]*) die "--days must be a number" ;; esac
+
+if [ -z "$names$ips" ]; then          # nothing given: this machine's own names and addresses
+    names="$(hostname -f 2>/dev/null || true) $(hostname 2>/dev/null || true)"
+    ips="$(hostname -I 2>/dev/null || true)"
+fi
+san="DNS:localhost,IP:127.0.0.1"
+first=""
+for n in $names; do
+    case "$n" in ''|*[!A-Za-z0-9.-]*) die "'$n' is not a plain host name" ;; esac
+    [ -n "$first" ] || first="$n"
+    san="$san,DNS:$n"
+done
+for a in $ips; do
+    case "$a" in ''|*[!0-9A-Fa-f:.]*) die "'$a' is not an IP address" ;; esac
+    san="$san,IP:$a"
+done
+cn="${first:-localhost}"
+
+if [ -e "$dir/server.crt" ] || [ -e "$dir/server.key" ]; then
+    [ "$force" = yes ] || die "$dir/server.crt already exists - use --force to replace it (the dashboard picks the new certificate up by itself)"
+fi
+
+if getent group channelview >/dev/null 2>&1; then
+    group=channelview
+    dirmode=0750
+    keymode=0640
+else
+    echo "channelview-cert: no group channelview here (package not installed?) - key stays readable by root only" >&2
+    group=root
+    dirmode=0700
+    keymode=0600
+fi
+
+umask 077
+install -d -m 0755 /etc/channelview
+install -d -m "$dirmode" -o root -g "$group" "$dir"
+work="$(mktemp -d "$dir/.new.XXXXXX")"
+trap 'rm -rf "$work"' EXIT
+
+if ! openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -sha256 -days "$days" \
+    -subj "/CN=$cn" -addext "subjectAltName=$san" -addext "extendedKeyUsage=serverAuth" \
+    -keyout "$work/server.key" -out "$work/server.crt" 2>"$work/openssl.err"; then
+    cat "$work/openssl.err" >&2
+    die "openssl could not make the certificate"
+fi
+
+chown root:"$group" "$work/server.key" "$work/server.crt"
+chmod "$keymode" "$work/server.key"
+chmod 0644 "$work/server.crt"
+mv -f "$work/server.key" "$dir/server.key"
+mv -f "$work/server.crt" "$dir/server.crt"
+
+echo "Certificate: $dir/server.crt   (valid $days days, names: $san)"
+echo "Key:         $dir/server.key"
+echo "SHA-256:     $(openssl x509 -in "$dir/server.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')"
+cat <<EOF
+
+To use it, put these two lines into /etc/default/channelview and restart the dashboard:
+
+    CHANNELVIEW_TLS_CERT=$dir/server.crt
+    CHANNELVIEW_TLS_KEY=$dir/server.key
+
+    sudo systemctl restart channelview
+
+Then open  https://$cn:<port>/  (the port is CHANNELVIEW_PORT, 8088 unless you changed it).
+To get rid of the browser warning, import $dir/server.crt as a trusted certificate on the PCs / kiosks that open the page.
+Renew with:  sudo channelview-cert --force     (no restart needed)
+EOF

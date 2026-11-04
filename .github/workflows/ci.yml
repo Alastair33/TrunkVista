@@ -1,0 +1,52 @@
+name: CI
+
+# Every push to the main branch and every pull request: unit tests, shell script checks, the demo page, and a real
+# install / upgrade / update / remove / purge of the .deb on a throw-away runner.
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+
+      - name: Shell scripts (shellcheck)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+          shellcheck packaging/build_deb.sh packaging/release.sh tests/e2e_debian.sh
+          shellcheck -s sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/channelview-cert
+
+      - name: The standalone demo page matches the dashboard page
+        run: |
+          python3 tools/build_demo.py "$RUNNER_TEMP/demo.html"
+          diff -q "$RUNNER_TEMP/demo.html" channelview_demo.html \
+            || { echo "::error::channelview_demo.html is out of date - run: python3 tools/build_demo.py channelview_demo.html"; exit 1; }
+
+  package:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the .deb
+        run: ./packaging/build_deb.sh
+
+      - name: Lintian (errors fail the build)
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq lintian
+          lintian --fail-on error dist/*.deb
+
+      - name: Install, upgrade, update, remove and purge it for real
+        run: sudo ./tests/e2e_debian.sh dist/channelview_*_all.deb
+
+      - name: Show the service log if something failed
+        if: failure()
+        run: sudo journalctl -u channelview --no-pager -n 100 || true

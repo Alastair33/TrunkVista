@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+Upstream-Name: ChannelView
+Source: https://github.com/@REPO@
+
+Files: *
+Copyright: 2026 the channelview authors
+License: All rights reserved
+ No licence has been chosen for this software yet. Replace this file (packaging/deb/copyright) and add a LICENSE file to the repository
+ when you decide how the software may be used and shared.
