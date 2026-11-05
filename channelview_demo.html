@@ -110,7 +110,7 @@ body.kiosk #hud{display:flex;align-items:center;gap:10px}
 .devbar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;padding:12px 16px 0}
 .devbar input[type=search]{width:300px;max-width:100%}
 .devbar .inl2{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:var(--text);cursor:pointer;white-space:nowrap}
-.devbar .grow{font-size:12px}
+.devbar .grow{font-size:12px;min-width:260px}      /* the summary wraps to its own line before it would be cut off */
 .seg{display:inline-flex}.seg button{border-radius:0;margin-left:-1px}.seg button:first-child{border-radius:6px 0 0 6px;margin-left:0}.seg button:last-child{border-radius:0 6px 6px 0}
 body.kiosk .devbar{visibility:hidden;height:46px;padding:0;overflow:hidden;flex-wrap:nowrap}      /* keeps room for the Back button, so it never covers the first row */
 .dwrap{padding:12px 16px 16px;overflow-x:auto}
@@ -172,7 +172,16 @@ button.dangerbtn{background:#b91c1c;border-color:#ef4444;color:#fff}button.dange
 tr.ghead td{background:#101a26;font-size:13px;padding:7px 12px;border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 tr.ghead:hover td{background:#16202c}
 div.ghead{display:flex;align-items:center;gap:8px;padding:14px 16px 0;font-size:14px}
-div.ghead + .cards{padding-top:10px}
+div.ghead + .cards,div.ghead + .heat{padding-top:10px}
+.heat{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:6px;padding:12px 16px}
+.hm{border-radius:6px;padding:7px 9px;min-height:56px;display:flex;flex-direction:column;justify-content:space-between;gap:3px;overflow:hidden;cursor:pointer;box-shadow:inset 0 0 0 1px #00000040}
+.hm:hover{box-shadow:inset 0 0 0 2px #ffffffb0}
+.hm:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.hm b{font-size:12.5px;line-height:1.2;overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.hm span{font-size:12px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hmlegend{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:12px 16px 0;font-size:12px}
+.hmlegend .lg{display:inline-flex;align-items:center;gap:6px;color:var(--text)}
+.hmlegend .lg i{width:12px;height:12px;border-radius:3px;display:inline-block;box-shadow:inset 0 0 0 1px #00000040}
 .ghead .twisty{display:inline-block;width:14px;color:var(--muted);font-size:11px}
 .ghead .dot{display:inline-block;width:9px;height:9px;border-radius:50%}
 #btn-refresh{font-size:16px;line-height:1;padding:4px 10px}
@@ -729,7 +738,7 @@ body.kiosk .cta{display:none}
         const names = t.hostnames || {};
         tab.hosts = hosts; tab.hostnames = Object.fromEntries(hosts.map(h => [h, txt(names[h], 100)]));
         tab.groups = (t.groups || []).slice(0, 30).map(g => txt(g, 100)); tab.ifaces = Math.trunc(num(t.ifaces, 0, 12, 4));
-        tab.all = !!t.all; tab.style = t.style === "list" ? "list" : "cards";      // (older layouts also stored a "limit" of 40 here - ignored now: "all" means all)
+        tab.all = !!t.all; tab.style = t.style === "list" || t.style === "heatmap" ? t.style : "cards";      // (older layouts also stored a "limit" of 40 here - ignored now: "all" means all)
       }
       out.tabs.push(tab);
     }
@@ -1542,23 +1551,26 @@ function startDrag(e, n) {
   addEventListener("pointermove", mv); addEventListener("pointerup", up);
 }
 
-// ---------- devices tab (cards or list)
+// ---------- devices tab (cards, list or heatmap)
 const DEV_KEYS = ["name", "ip", "status", "proxy", "model", "os", "problems", "ifs", "busy"], DEV_GROUPS = ["none", "status", "proxy", "problems", "ip", "name", "os", "model"];
 const PER_CHOICES = [10, 25, 50, 100, 200, 500];      // devices per page
-const DEVUI = { q: "", only: false, key: "name", dir: 1, group: "none", per: 50, pages: {}, open: new Set(), closed: new Set() };      // filter / sort / group / page size / expanded rows, shared by all device tabs; pages = current page of each tab
+const HEAT_KEYS = ["status", "busy", "sev"];      // what the heatmap tiles are coloured by (HEAT_METRICS below)
+const DEVUI = { q: "", only: false, key: "name", dir: 1, group: "none", per: 50, heat: "status", pages: {}, open: new Set(), closed: new Set() };      // filter / sort / group / page size / expanded rows, shared by all device tabs; pages = current page of each tab
 try {      // sort, group and "only issues" are remembered in this browser
   const s = JSON.parse(localStorage.getItem("channelview-devui") || "{}");
   if (DEV_KEYS.includes(s.key)) DEVUI.key = s.key;
   if (s.dir === 1 || s.dir === -1) DEVUI.dir = s.dir;
   if (DEV_GROUPS.includes(s.group)) DEVUI.group = s.group;
   if (PER_CHOICES.includes(s.per)) DEVUI.per = s.per;
+  if (HEAT_KEYS.includes(s.heat)) DEVUI.heat = s.heat;
   DEVUI.only = s.only === true;
 } catch (e) {}
-const saveDevUI = () => { try { localStorage.setItem("channelview-devui", JSON.stringify({ key: DEVUI.key, dir: DEVUI.dir, group: DEVUI.group, only: DEVUI.only, per: DEVUI.per })); } catch (e) {} };
+const saveDevUI = () => { try { localStorage.setItem("channelview-devui", JSON.stringify({ key: DEVUI.key, dir: DEVUI.dir, group: DEVUI.group, only: DEVUI.only, per: DEVUI.per, heat: DEVUI.heat })); } catch (e) {} };
+const DEV_MODES = ["list", "cards", "heatmap"];
 const resetPages = () => { DEVUI.pages = {}; };      // a new filter / sort / grouping starts again on page 1
 function devMode(tab) {
-  try { const v = localStorage.getItem("channelview-devview:" + tab.id); if (v === "cards" || v === "list") return v; } catch (e) {}     // a viewer's own choice wins
-  return tab.style === "list" ? "list" : "cards";
+  try { const v = localStorage.getItem("channelview-devview:" + tab.id); if (DEV_MODES.includes(v)) return v; } catch (e) {}     // a viewer's own choice wins
+  return DEV_MODES.includes(tab.style) ? tab.style : "cards";
 }
 function setDevMode(tab, v) { try { localStorage.setItem("channelview-devview:" + tab.id, v); } catch (e) {} renderMain(); }
 const ST_RANK = { down: 0, unknown: 1, disabled: 2, up: 3 };
@@ -1610,13 +1622,53 @@ function ifLine(i) {
     el("div", { class: "bar" }, el("i", { style: `width:${clamp(i.pct || 0, 0, 100)}%;background:${colorFor(i.pct)}` })),
     el("span", {}, fmtPct(i.pct) + " · ↓" + fmtBps(i.in_bps).replace(" ", "") + " ↑" + fmtBps(i.out_bps).replace(" ", "")));
 }
+function cardBody(c) {      // what a card shows under its name; the heatmap shows the same in its detail dialog
+  return [
+    el("div", { class: "meta" }, el("span", {}, c.status), c.ip ? el("span", {}, c.ip) : null, c.model ? el("span", { title: "Device model" }, c.model) : null, c.os ? el("span", { title: "Operating system" }, c.os) : null, c.proxy ? el("span", {}, "via " + c.proxy) : null, c.problems ? el("span", { style: "color:" + DEV_YEL }, c.problems + " problem" + (c.problems > 1 ? "s" : "")) : null, c.if_total ? el("span", {}, c.if_total + " interfaces" + (c.if_down ? " (" + c.if_down + " down)" : "")) : null),
+    c.top.map(p => probEl(p)),
+    c.ifaces.map(ifLine)];
+}
 function cardEl(c) {
   const col = devColor(c);
   return el("div", { class: "card", style: "border-left-color:" + col },
-    el("h3", {}, el("span", { class: "dot", style: "background:" + col, title: devState(c) }), c.name),
-    el("div", { class: "meta" }, el("span", {}, c.status), c.ip ? el("span", {}, c.ip) : null, c.model ? el("span", { title: "Device model" }, c.model) : null, c.os ? el("span", { title: "Operating system" }, c.os) : null, c.proxy ? el("span", {}, "via " + c.proxy) : null, c.problems ? el("span", { style: "color:" + DEV_YEL }, c.problems + " problem" + (c.problems > 1 ? "s" : "")) : null, c.if_total ? el("span", {}, c.if_total + " interfaces" + (c.if_down ? " (" + c.if_down + " down)" : "")) : null),
-    c.top.map(p => probEl(p)),
-    c.ifaces.map(ifLine));
+    el("h3", {}, el("span", { class: "dot", style: "background:" + col, title: devState(c) }), c.name), cardBody(c));
+}
+
+// Heatmap: one tile per device, coloured by what the viewer picks (status / busiest interface / worst problem), the value written on the tile
+// as well, so the colour is never the only signal. Hover shows the details, click opens them in a dialog.
+const busyPct = c => c.ifaces && c.ifaces[0] && c.ifaces[0].pct != null ? c.ifaces[0].pct : null;
+const SEV_NC = "#94a3b8";      // a problem of severity "Not classified": lighter than the grey of "no data"
+const HEAT_METRICS = {
+  status: { t: "Status", color: devColor,
+    text: c => c.status === "down" ? "Down" : c.status === "disabled" ? "Not monitored" : c.problems > 0 ? c.problems + (c.problems === 1 ? " problem" : " problems") : c.status === "up" ? "Up" : "No data",
+    legend: () => [[DEV_GRN, "Up, no problems"], [DEV_YEL, "Up, with problems"], [DEV_RED, "Down"], [DEV_GREY, "Not monitored / no data"]] },
+  busy: { t: "Busiest interface", color: c => colorFor(busyPct(c)), text: c => busyPct(c) == null ? "–" : fmtPct(busyPct(c)),
+    legend: () => { const sc = scale(); return [...sc.map(([t, col], i) => [col, sc.length === 1 ? "any usage" : i === 0 ? "< " + sc[1][0] + "%" : i === sc.length - 1 ? t + "%+" : t + "–" + sc[i + 1][0] + "%"]), [DEV_GREY, "No data"]]; } },
+  sev: { t: "Worst problem", color: c => c.problems > 0 ? (SEV[c.severity] && c.severity > 0 ? SEV[c.severity] : SEV_NC) : c.status === "up" ? DEV_GRN : DEV_GREY,
+    text: c => c.problems > 0 ? (SEVN[c.severity] || "Problem") + (c.problems > 1 ? " ×" + c.problems : "") : c.status === "up" ? "No problems" : c.status === "disabled" ? "Not monitored" : "No data",
+    legend: () => [[DEV_GRN, "No problems"], [SEV_NC, SEVN[0]], ...[1, 2, 3, 4, 5].map(i => [SEV[i], SEVN[i]]), [DEV_GREY, "No data"]] },
+};
+function devTipLines(c) {
+  const ids = [c.ip, c.model, c.os, c.proxy ? "via " + c.proxy : ""].filter(Boolean).join(" · ");
+  return [c.name, devState(c), ids, ...c.top.map(p => (SEVN[p.severity] || "Problem") + ": " + p.name),
+    ...c.ifaces.map(i => i.name + "  " + fmtPct(i.pct) + " · ↓" + fmtBps(i.in_bps).replace(" ", "") + " ↑" + fmtBps(i.out_bps).replace(" ", "")), "Click for details"].filter(Boolean);
+}
+function heatTile(c, M) {
+  const col = M.color(c), txt = M.text(c);
+  const t = el("div", { class: "hm", role: "button", tabindex: "0", "aria-label": c.name + ": " + txt, style: "background:" + col + ";color:" + textOn(col) }, el("b", {}, c.name), el("span", {}, txt));
+  const open = () => { tipHide(); openModal(c.name, el("div", { class: "card", style: "border-left-color:" + devColor(c) }, cardBody(c)), [btn("Close", closeModal, "primary")]); };
+  t.addEventListener("mouseenter", e => tipShow(e, devTipLines(c)));
+  t.addEventListener("mousemove", tipMove);
+  t.addEventListener("mouseleave", tipHide);
+  t.addEventListener("click", open);
+  t.addEventListener("keydown", e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); open(); } });
+  return t;
+}
+function devHeat(groups) {
+  const M = HEAT_METRICS[DEVUI.heat] || HEAT_METRICS.status;
+  const legend = el("div", { class: "hmlegend", id: "heat-legend" }, el("span", { class: "muted" }, "Colour: " + M.t),
+    ...M.legend().map(([col, label]) => el("span", { class: "lg" }, el("i", { style: "background:" + col }), label)));
+  return el("div", {}, legend, groups.map(g => [g.id ? gHead(g) : null, g.id && DEVUI.closed.has(g.id) ? null : el("div", { class: "heat" }, g.items.map(c => heatTile(c, M)))]));
 }
 function gHead(g, span) {      // clickable group heading (table row, or a block above the cards)
   const shut = DEVUI.closed.has(g.id), col = DEVUI.group === "status" ? stateColor(g.g) : null;
@@ -1717,14 +1769,26 @@ function drawDevices(host, tab) {
   const sum = (pg.pages > 1 ? "Showing " + (pg.from + 1) + "–" + pg.to + " of " + pg.total + (pg.total !== list.length ? " in open groups" : whole ? " devices" : " matching") + (whole ? "" : " · " + all.length + " devices")
     : whole ? all.length + " devices" : list.length + " of " + all.length + " devices") + (nDown ? " · " + nDown + " down" : "") + (nProb ? " · " + nProb + " with problems" : "");
   const seg = el("span", { class: "seg" }, el("button", { class: mode === "list" ? "on" : "", type: "button", onclick: () => setDevMode(tab, "list") }, "List"),
-    el("button", { class: mode === "cards" ? "on" : "", type: "button", onclick: () => setDevMode(tab, "cards") }, "Cards"));
+    el("button", { class: mode === "cards" ? "on" : "", type: "button", onclick: () => setDevMode(tab, "cards") }, "Cards"),
+    el("button", { class: mode === "heatmap" ? "on" : "", type: "button", id: "dev-mode-heatmap", onclick: () => setDevMode(tab, "heatmap") }, "Heatmap"));
+  let heatSel = null, sortSel = null;
+  if (mode === "heatmap") {      // the heatmap's own choices: what the colour means, and (with the order button) which devices come first
+    heatSel = el("select", { id: "dev-heat", title: "What the tiles are coloured by" }, ...HEAT_KEYS.map(k => el("option", { value: k }, HEAT_METRICS[k].t)));
+    heatSel.value = DEVUI.heat;
+    heatSel.addEventListener("change", () => { DEVUI.heat = heatSel.value; saveDevUI(); renderMain(); });
+    sortSel = el("select", { id: "dev-sort", title: "Order the devices by" }, ...DCOLS.map(c => el("option", { value: c.k }, c.t)));
+    sortSel.value = DEVUI.key;
+    sortSel.addEventListener("change", () => { const c = DCOLS.find(x => x.k === sortSel.value); DEVUI.key = c.k; DEVUI.dir = c.desc ? -1 : 1; resetPages(); saveDevUI(); renderMain(); });
+  }
   const nav = pg.pages > 1 ? el("span", { class: "seg" }, el("button", { id: "dev-prev", type: "button", title: "Previous page", disabled: pg.page <= 1, onclick: () => setPage(tab, pg.page - 1) }, "‹"),
     el("button", { id: "dev-next", type: "button", title: "Next page", disabled: pg.page >= pg.pages, onclick: () => setPage(tab, pg.page + 1) }, "›")) : null;
   const bar = el("div", { class: "devbar" }, qi, el("label", { class: "inl2" }, onlyCb, " Only with issues"),
-    el("label", { class: "inl2" }, el("span", { class: "muted" }, "Group by"), gsel), dirBtn,
+    heatSel ? el("label", { class: "inl2" }, el("span", { class: "muted" }, "Colour by"), heatSel) : null,
+    el("label", { class: "inl2" }, el("span", { class: "muted" }, "Group by"), gsel),
+    sortSel ? el("label", { class: "inl2" }, el("span", { class: "muted" }, "Sort by"), sortSel) : null, dirBtn,
     el("label", { class: "inl2" }, el("span", { class: "muted" }, "Per page"), perSel), el("span", { class: "muted grow" }, sum), nav, seg);
   const note = view.truncated ? el("div", { class: "box warnb dnote", id: "dev-cut" }, "Only the first " + view.max_hosts + " monitored hosts are loaded, but Zabbix has more. Raise max_hosts (config.json) to list them all.") : null;
-  const body = !list.length ? el("div", { class: "empty" }, "No devices match the filter.") : mode === "list" ? devTable(pg.groups) : devCards(pg.groups);
+  const body = !list.length ? el("div", { class: "empty" }, "No devices match the filter.") : mode === "list" ? devTable(pg.groups) : mode === "heatmap" ? devHeat(pg.groups) : devCards(pg.groups);
   host.replaceChildren(...[bar, note, body, list.length ? pagerEl(pg, tab) : null].filter(Boolean));      // (replaceChildren would print a null as the text "null")
   if (keep) { qi.focus(); try { qi.setSelectionRange(keep[0], keep[1]); } catch (e) {} }
 }
@@ -1770,7 +1834,7 @@ function renderMain() {
   if (!tab) { main.replaceChildren(el("div", { class: "empty" }, "No tabs yet." + (canEdit ? " Click Edit to create one." : ""))); return; }
   if (tab.type === "map") drawMap(main, tab); else drawDevices(main, tab);
   if (keep) {
-    const at = document.elementFromPoint(keep.clientX, keep.clientY), t = at && at.closest ? at.closest("g.node, polyline[data-lid]") : null;
+    const at = document.elementFromPoint(keep.clientX, keep.clientY), t = at && at.closest ? at.closest("g.node, polyline[data-lid], .hm") : null;
     if (t) t.dispatchEvent(new MouseEvent("mouseenter", { clientX: keep.clientX, clientY: keep.clientY }));
   }
 }
@@ -1919,7 +1983,7 @@ function secTab(tab) {
     kids.push(el("div", { class: "row" }, fld("Canvas width", inp(m.width, v => { m.width = clamp(parseInt(v) || 1600, 400, 8000); changed(false); }, { type: "number" })), fld("height", inp(m.height, v => { m.height = clamp(parseInt(v) || 900, 300, 8000); changed(false); }, { type: "number" }))));
   } else {
     kids.push(el("div", { class: "hint" }, "Shows every host below, all hosts in the listed host groups, and (optionally) every monitored host."));
-    const sty = el("select", {}, el("option", { value: "list" }, "List (table)"), el("option", { value: "cards" }, "Cards")); sty.value = tab.style === "list" ? "list" : "cards";
+    const sty = el("select", {}, el("option", { value: "list" }, "List (table)"), el("option", { value: "cards" }, "Cards"), el("option", { value: "heatmap" }, "Heatmap (tiles)")); sty.value = DEV_MODES.includes(tab.style) ? tab.style : "cards";
     sty.addEventListener("change", () => { tab.style = sty.value; try { localStorage.removeItem("channelview-devview:" + tab.id); } catch (e) {} changed(false); });
     kids.push(fld("Show devices as", sty));
     const allCb = el("input", { type: "checkbox", style: "flex:none;width:auto" }); allCb.checked = !!tab.all;

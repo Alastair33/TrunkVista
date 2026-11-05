@@ -484,7 +484,7 @@
         const names = t.hostnames || {};
         tab.hosts = hosts; tab.hostnames = Object.fromEntries(hosts.map(h => [h, txt(names[h], 100)]));
         tab.groups = (t.groups || []).slice(0, 30).map(g => txt(g, 100)); tab.ifaces = Math.trunc(num(t.ifaces, 0, 12, 4));
-        tab.all = !!t.all; tab.style = t.style === "list" ? "list" : "cards";      // (older layouts also stored a "limit" of 40 here - ignored now: "all" means all)
+        tab.all = !!t.all; tab.style = t.style === "list" || t.style === "heatmap" ? t.style : "cards";      // (older layouts also stored a "limit" of 40 here - ignored now: "all" means all)
       }
       out.tabs.push(tab);
     }

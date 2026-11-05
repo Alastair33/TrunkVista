@@ -8,7 +8,7 @@
 ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
 
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
-- **Device tabs** – cards or a sortable list, grouped by status, proxy, OS, model, …
+- **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, proxy, OS, model, …
 - **Playlists** and a kiosk mode for NOC wall displays, a built-in editor, a connection menu for your Zabbix API.
 - One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
 
@@ -33,10 +33,18 @@ All of these show the built-in demo data (simulated Cisco devices), so no real n
 
 ![The hover card of a link with its traffic graph](docs/screenshots/03-link-traffic-graph.png)
 
-**Device tabs.** Cards or a sortable list, with a filter, grouping, paging, and the busiest interfaces per device.
+**Device tabs.** Cards or a sortable list, with a filter, grouping, paging, and the busiest interfaces per device. A third view, the heatmap, is shown below.
 
 ![A device tab in card view](docs/screenshots/04-devices-cards.png)
 ![A device tab in list view with 128 hosts](docs/screenshots/05-devices-list.png)
+
+**Heatmap.** One tile per device, so a few hundred devices fit on one screen. *Colour by* picks what the colour means: **Status** (down, up with problems, up), **Busiest interface** (the usage scale of the weathermap) or **Worst problem** (Zabbix severity). The value is written on every tile too, so the colour is never the only signal, and a legend names the colours. *Sort by* with the order button puts the hottest devices first; filter, *Only with issues*, grouping and paging work as in the other views.
+
+![The heatmap coloured by busiest interface, hottest first](docs/screenshots/09-heatmap.png)
+
+Hover a tile for the device's details, click it (or press Enter) to open them. A device tab can open as a heatmap by default (Edit › This tab › Style); every viewer can still switch views, and the choice is remembered per tab in that browser. In kiosk mode the tiles and the legend stay.
+
+![The heatmap coloured by status, with the details of a device under the pointer](docs/screenshots/10-heatmap-details.png)
 
 **Editor.** Edit mode: tabs, devices (added from Zabbix) and links; right-click a device or link for the shape, size, notifications, modify and delete.
 

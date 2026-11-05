@@ -125,6 +125,23 @@ class VersionAndDemo(unittest.TestCase):
         self.assertNotIn("&#9670;", html, "old diamond glyph is gone")
         self.assertNotIn('href="data:,"', html)
 
+    def test_devices_tab_style_heatmap_is_kept_and_unknown_styles_fall_back(self):
+        """A devices tab can default to the heatmap view; the layout keeps list / cards / heatmap and turns anything else into cards."""
+        with tempfile.TemporaryDirectory() as tmp, Server(tmp, "--demo", "--data-dir", tmp + "/d") as s:
+            html = s.get("/")[1].decode()
+            self.assertIn('id: "dev-mode-heatmap"', html, "the view switch offers the heatmap")
+            token = re.search(r'const EDIT_TOKEN = "([^"]+)"', html).group(1)
+            layout = json.loads(s.get("/api/layout")[1])["layout"]
+            tab = next(t for t in layout["tabs"] if t["type"] == "devices")
+            for style, want in (("heatmap", "heatmap"), ("list", "list"), ("cards", "cards"), ("bogus", "cards"), (["heatmap"], "cards"), (None, "cards")):
+                tab["style"] = style
+                req = urllib.request.Request(s.url("/api/layout"), data=json.dumps({"layout": layout}).encode(),
+                                             headers={"Content-Type": "application/json", "X-Edit-Token": token})
+                with urllib.request.urlopen(req, timeout=5) as r:
+                    self.assertEqual(r.status, 200)
+                saved = next(t for t in json.loads(s.get("/api/layout")[1])["layout"]["tabs"] if t["id"] == tab["id"])
+                self.assertEqual(saved["style"], want, f"style {style!r}")
+
     def test_init_writes_owner_only_config_and_refuses_to_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             cmd = [sys.executable, str(APP), "--init", "--data-dir", tmp + "/d"]
