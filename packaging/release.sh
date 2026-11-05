@@ -10,7 +10,8 @@
 # What it does, in order (and stops at the first problem, before changing anything):
 #   1. checks the version, a clean git tree, the branch (main / master), that the tag is new, and that there is something to release:
 #      the notes under "## [Unreleased]" in CHANGELOG.md (or a "## [X.Y.Z]" section you wrote yourself)
-#   2. sets  VERSION = "X.Y.Z"  in channelview.py, turns [Unreleased] into the "## [X.Y.Z] - date" section and rebuilds channelview_demo.html
+#   2. sets  VERSION = "X.Y.Z"  in channelview.py, turns [Unreleased] into the "## [X.Y.Z] - date" section, adds a "What's new in X.Y.Z"
+#      segment to README.md (packaging/whats_new.py; not for pre-releases) and rebuilds channelview_demo.html
 #   3. runs the unit tests (a failure puts everything back)
 #   4. commits ("Release vX.Y.Z", only if something changed) and creates the annotated tag vX.Y.Z
 #   5. with --push: pushes the branch and the tag. GitHub Actions (.github/workflows/release.yml) then builds the .deb and publishes the release.
@@ -89,6 +90,11 @@ EOF
     esac
 fi
 
+# README.md: a "What's new in X.Y.Z" segment per released version, made from the CHANGELOG (pre-releases are not shown there)
+if [[ "$version" != *-* ]] && [ -f packaging/whats_new.py ]; then
+    python3 packaging/whats_new.py || die "packaging/whats_new.py failed - nothing was committed; undo with: git checkout -- ."
+fi
+
 if [ "$current" != "$version" ]; then
     sed -i "s/^VERSION = \".*\"/VERSION = \"$version\"/" channelview.py
     echo "VERSION: $current -> $version"
@@ -99,6 +105,7 @@ if $run_tests; then
     echo "running the unit tests ..."
     if ! python3 -m unittest discover -s tests >/dev/null 2>&1; then
         git checkout -- channelview.py channelview_demo.html CHANGELOG.md
+        if git ls-files --error-unmatch README.md >/dev/null 2>&1; then git checkout -- README.md; fi
         die "the tests fail - nothing was committed and the files are as they were. Run:  python3 -m unittest discover -s tests -v"
     fi
     echo "tests pass"
@@ -106,6 +113,7 @@ fi
 
 if [ -n "$(git status --porcelain --untracked-files=no)" ]; then      # tracked files only: running the tests may leave __pycache__ behind
     git add channelview.py channelview_demo.html CHANGELOG.md
+    if git ls-files --error-unmatch README.md >/dev/null 2>&1; then git add README.md; fi
     git commit -q -m "Release $tag"
     echo "committed: Release $tag"
 else

@@ -33,7 +33,7 @@ class ReleaseScript(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo, self.remote = self.tmp / "repo", self.tmp / "remote.git"
-        for rel in ("channelview.py", "tools/build_demo.py", "tools/demo_shim.js", "packaging/release.sh", ".gitignore"):
+        for rel in ("channelview.py", "tools/build_demo.py", "tools/demo_shim.js", "packaging/release.sh", "packaging/whats_new.py", ".gitignore"):
             (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / rel, self.repo / rel)
         (self.repo / "tests").mkdir()
@@ -65,6 +65,16 @@ class ReleaseScript(unittest.TestCase):
         c = self.changelog().replace("## [Unreleased]\n", "## [Unreleased]\n\n" + text + "\n", 1)
         (self.repo / "CHANGELOG.md").write_text(c)
         self.git("commit", "-q", "-am", "note")
+
+    README = "# Prog\n\nIntro.\n\n## Release notes\n\n<!-- whats-new:start -->\n<!-- whats-new:end -->\n\n## Install\n\nText.\n"
+
+    def add_readme(self, text=None):
+        (self.repo / "README.md").write_text(self.README if text is None else text)
+        self.git("add", "README.md")
+        self.git("commit", "-q", "-m", "readme")
+
+    def readme(self):
+        return (self.repo / "README.md").read_text()
 
     def assert_untouched(self, head):
         self.assertEqual(self.git("rev-parse", "HEAD"), head)
@@ -164,6 +174,66 @@ class ReleaseScript(unittest.TestCase):
         self.assertEqual(remote_tags, ["v1.0.0"])
         branches = subprocess.run(["git", "--git-dir", str(self.remote), "branch"], capture_output=True, text=True).stdout
         self.assertIn("main", branches)
+
+    def test_each_release_gets_a_whats_new_segment_in_the_readme(self):
+        self.add_readme()
+        self.assertEqual(self.release("patch")[0], 0)
+        r, today = self.readme(), date.today().isoformat()
+        self.assertRegex(r, r"<!-- whats-new:start[^\n]*-->\n### What's new in 1\.0\.1\n\n\*" + today + r"\*\n\n- Darker header\.\n\n"
+                            r"### What's new in 1\.0\.0\n\n\*2026-01-01\*\n\nFirst\.\n<!-- whats-new:end -->\n\n## Install")
+        self.assertTrue(r.startswith("# Prog\n\nIntro.\n\n## Release notes\n\n<!-- whats-new:start"), "text around the markers is untouched")
+        self.assertTrue(r.endswith("## Install\n\nText.\n"))
+        self.assertEqual(self.git("status", "--porcelain"), "")
+        self.assertIn("README.md", self.git("show", "--stat", "--format=", "HEAD"), "part of the release commit")
+        self.add_note("- Second change.")
+        self.assertEqual(self.release("minor")[0], 0)
+        r = self.readme()
+        self.assertEqual(r.count("### What's new in"), 3)
+        self.assertLess(r.index("What's new in 1.1.0"), r.index("What's new in 1.0.1"), "newest first")
+        self.assertIn("- Second change.", r.split("What's new in 1.0.1")[0])
+        again = subprocess.run(["python3", "packaging/whats_new.py"], cwd=self.repo, capture_output=True, text=True)
+        self.assertIn("already up to date", again.stdout)
+        subprocess.run(["python3", "packaging/whats_new.py", "--keep", "1"], cwd=self.repo, check=True, capture_output=True)
+        self.assertEqual(self.readme().count("### What's new in"), 1, "--keep N limits how many versions are shown")
+
+    def test_pre_releases_stay_out_of_the_readme_and_a_readme_without_markers_is_left_alone(self):
+        self.add_readme()
+        self.assertEqual(self.release("--no-tests", "1.1.0-rc.1")[0], 0)
+        self.assertEqual(self.readme(), self.README, "a pre-release is not announced")
+        self.assertEqual(self.release("--no-tests", "1.1.0")[0], 0)
+        self.assertIn("### What's new in 1.1.0\n\n*", self.readme())
+        self.assertNotIn("rc.1", self.readme())
+        plain = "# Prog\n\nNo markers here.\n"
+        self.add_readme(plain)
+        self.add_note("- Another.")
+        rc, out = self.release("--no-tests", "patch")
+        self.assertEqual(rc, 0, out)
+        self.assertEqual(self.readme(), plain)
+        self.assertIn("skipped", out)
+
+    def test_failing_tests_put_the_readme_back_too(self):
+        self.add_readme()
+        (self.repo / "tests" / "test_bad.py").write_text("import unittest\nclass B(unittest.TestCase):\n    def test_bad(self):\n        self.fail('boom')\n")
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", "a failing test")
+        head = self.git("rev-parse", "HEAD")
+        self.assertEqual(self.release("patch")[0], 1)
+        self.assert_untouched(head)
+        self.assertEqual(self.readme(), self.README)
+
+
+class ReadmeInSync(unittest.TestCase):
+    def test_whats_new_in_the_readme_matches_the_changelog(self):
+        """The 'What's new' block of README.md is made from CHANGELOG.md; this fails when one was edited without the other.
+        Fix:  python3 packaging/whats_new.py"""
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for name in ("README.md", "CHANGELOG.md"):
+            shutil.copy(ROOT / name, tmp / name)
+        r = subprocess.run(["python3", str(ROOT / "packaging" / "whats_new.py"), "--root", str(tmp)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("up to date", r.stdout, "README.md is behind CHANGELOG.md - run: python3 packaging/whats_new.py\n" + r.stdout)
+        self.assertEqual((tmp / "README.md").read_text(), (ROOT / "README.md").read_text())
 
 
 if __name__ == "__main__":

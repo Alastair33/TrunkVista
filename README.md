@@ -47,6 +47,57 @@ All of these show the built-in demo data (simulated Cisco devices), so no real n
 
 ![Kiosk mode showing a playlist](docs/screenshots/08-kiosk-playlist.png)
 
+## Release notes
+
+Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/ChannelView/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
+
+<!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
+### What's new in 1.1.1
+
+*2026-11-05*
+
+- **New logo.** A C made of four link segments in the usage colours (green, lime, amber, orange) around a blue node. It is now in the page
+  header, replacing the plain diamond, and is the browser tab icon (a drawing tuned to stay readable at 16 px). The header mark's centre node
+  follows `--accent`, so a `custom.css` accent colour restyles it.
+- The logo files are in the repository under `docs/logo`: SVG and PNG logos for dark and light backgrounds, one-colour marks, app icon,
+  favicon, a 1280 x 640 social preview image, the colour and usage rules, and the script that draws them.
+- The README now opens with the logo and shows screenshots of the interface (demo data) in `docs/screenshots`.
+
+### What's new in 1.1.0
+
+*2026-11-04*
+
+- **Renamed from "Zabbix Dashboard" to ChannelView** (before the first public release): program `channelview.py`, package, commands
+  (`channelview-update`, `channelview-cert`), service, folders (`/var/lib/channelview`, `/etc/channelview`) and settings (`CHANNELVIEW_*`)
+  all use the lowercase name that Debian requires; the page, README and release titles say ChannelView. The settings the page keeps in
+  the browser (graph range, refresh interval, list view) and the standalone demo's saved connections are stored under new
+  `channelview-*` names, so a browser that used the old name starts with the defaults.
+- **HTTPS built in** - no Apache or Nginx needed: `--tls-cert` / `--tls-key` (or `CHANNELVIEW_TLS_CERT` / `CHANNELVIEW_TLS_KEY` in `/etc/default/channelview`).
+  TLS 1.2 or newer; a renewed certificate file is used without a restart; `http://` typed on the HTTPS port is redirected to `https://`;
+  an unusable certificate stops the start with a clear message.
+- `channelview-cert`: makes a self-signed certificate (names and addresses of the machine) and prints the two settings to use.
+- `custom.css` in the data folder (`/var/lib/channelview/custom.css`): your own style rules, added after the built-in ones and read at every
+  page load. Updates never touch it.
+- `packaging/release.sh patch | minor | major`: next version, `[Unreleased]` notes become the release section, tests, commit, tag
+  (`--push` publishes). Pre-releases (`X.Y.Z-rc.1`) keep the notes for the final release.
+
+### What's new in 1.0.0
+
+*2026-11-04*
+
+First packaged release.
+
+- Weathermap tabs: devices joined by interface links, coloured by status and utilisation, labelled with % and bit/s per direction;
+  one bend point per link, interface names above / below the line, per-device notification switch, movable usage meter.
+- Hover a link for an in / out traffic graph; time range 5 min to 30 days (hourly Zabbix trends beyond 24 h) and data refresh interval
+  5 s to 15 min are picked in the header.
+- Device tabs (cards and sortable list, grouped by status, proxy, OS, model, ...), playlists and kiosk mode.
+- Built-in editor, demo mode (`--demo`), connection menu for Zabbix 7.0 (API token), standalone demo page.
+- Debian / Ubuntu package (`channelview_1.0.0_all.deb`): systemd service running as its own user, data in `/var/lib/channelview`,
+  settings in `/etc/default/channelview`, edit token that survives restarts (`--token-file`).
+- `channelview-update`: installs newer releases from GitHub (SHA-256 check, optional GPG signature check, optional nightly timer).
+<!-- whats-new:end -->
+
 ## Install on Debian / Ubuntu
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
@@ -224,7 +275,7 @@ From the next release on the workflow signs `SHA256SUMS`. From the moment the ke
 | `packaging/release.sh major --push` | something that changes how it is used | 1.1.0 → 2.0.0 |
 | `packaging/release.sh 1.1.1-rc.1 --push` | a pre-release for trying it first | – |
 
-It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the release notes), runs the unit tests (a failure puts everything back), commits, tags, and with `--push` pushes – GitHub Actions does the rest. Without `--push` it stops before publishing and tells you how to undo.
+It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the release notes and the release's **What's new in X.Y.Z** segment in the README – the latest three versions are shown there, made by `packaging/whats_new.py`, so edit the CHANGELOG and never that block), runs the unit tests (a failure puts everything back), commits, tags, and with `--push` pushes – GitHub Actions does the rest. Without `--push` it stops before publishing and tells you how to undo.
 
 **Try a patch on one server first:** release `1.1.1-rc.1`, then on a test server `sudo channelview-update --channel prerelease`. If it is good, release the final version with `packaging/release.sh 1.1.1 --push` (the notes are still under `[Unreleased]`); servers on the normal channel only ever see that one.
 

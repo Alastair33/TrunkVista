@@ -4,6 +4,9 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+- The README has a **Release notes** section: every release gets a "What's new in X.Y.Z" segment (the latest three are shown, older ones are in
+  this file). `packaging/release.sh` writes it from the notes of the release, so it never differs from what GitHub shows; pre-releases are skipped.
+
 ## [1.1.1] - 2026-11-05
 
 - **New logo.** A C made of four link segments in the usage colours (green, lime, amber, orange) around a blue node. It is now in the page
