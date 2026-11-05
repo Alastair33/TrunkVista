@@ -266,6 +266,21 @@ class Installing(Base):
         self.assertEqual((rc, self.installs), (1, []))
         self.assertIn("no line for", err)
 
+    def test_fixed_name_copies_in_a_release_are_ignored(self):
+        """The release workflow also attaches channelview-latest.deb, channelview.py and channelview_demo.html (fixed names for
+        releases/latest/download/...). The updater must still install the versioned package, whatever order GitHub lists the files in."""
+        self.assertIsNone(upd.DEB_RX.match("channelview-latest.deb"))
+        name = "channelview_1.1.0_all.deb"
+        data = make_deb(self.tmp, "1.1.0") if HAVE_DPKG else b"not a real deb"
+        sums = sums_for("channelview-latest.deb", data) + sums_for(name, data) + sums_for("channelview.py", b"#!/usr/bin/env python3\n")
+        self.gh.add_release("v1.1.0", {"channelview-latest.deb": data, "channelview.py": b"#!/usr/bin/env python3\n",
+                                       "channelview_demo.html": b"<html>", name: data, "SHA256SUMS": sums})
+        rc, _, err = self.go("--yes")
+        if HAVE_DPKG:
+            self.assertEqual((rc, [p.name for p, _, _ in self.installs]), (0, [name]), err)
+        else:
+            self.assertEqual(upd.deb_asset({"assets": [{"name": "channelview-latest.deb"}, {"name": name}]})["name"], name)
+
     def test_the_file_must_be_the_package_of_that_version(self):
         for version, deb in (("1.1.0", make_deb(self.tmp, "1.1.5")), ("1.2.0", make_deb(self.tmp, "1.2.0", package="other")), ("1.3.0", b"garbage")):
             name = f"channelview_{version}_all.deb"

@@ -4,6 +4,18 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+People who download ChannelView are now sent to the **latest release**, never to the branch.
+
+- **Fixed file names in every release.** Besides `channelview_<version>_all.deb`, each release carries `channelview-latest.deb` (the same package),
+  `channelview.py` (the single program file, for systems without apt), `channelview_demo.html` and `SHA256SUMS`, which lists all of them. GitHub's
+  `releases/latest/download/<name>` address therefore always serves the newest full release (pre-releases are never "latest"). `channelview-update`
+  is unaffected: it still looks for `channelview_<version>_all.deb` only.
+- **README.** A new *Download* section (and a note under the logo) says to take ChannelView from the latest release and not with *Code → Download ZIP*
+  or a clone of `main`, which can hold unreleased changes; it lists the files and their permanent addresses, how to check the checksums, and how
+  to download from a private repository with `gh`. The Debian install steps no longer name a version, *Updating* says that only the newest full
+  release is installed, and *Development* says that a clone is for working on the program.
+- The release notes on GitHub end with the same advice. A test keeps the README and the release workflow in agreement about the file names.
+
 ## [1.2.0] - 2026-11-05
 
 A **light mode** and a **heatmap view** for the device tabs, easier-to-read labels, and the fixes from a review of the whole program.

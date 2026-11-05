@@ -1,0 +1,44 @@
+"""The instructions and the release workflow must agree: people are told to download from the LATEST release, under file names that the
+workflow really attaches to every release.   Run:  python3 -m unittest discover -s tests -v"""
+import re
+import unittest
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+README = (ROOT / "README.md").read_text(encoding="utf-8")
+WORKFLOW = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+FIXED_NAMES = ("channelview-latest.deb", "channelview.py", "channelview_demo.html", "SHA256SUMS")
+
+
+class DownloadInstructions(unittest.TestCase):
+    def test_the_workflow_attaches_every_fixed_name_and_checksums_them(self):
+        sums_line = next(line for line in WORKFLOW.splitlines() if "sha256sum" in line and "> SHA256SUMS" in line)
+        for name in ("channelview.py", "channelview_demo.html"):
+            self.assertIn(name, sums_line, name + " must be listed in SHA256SUMS")
+            self.assertRegex(WORKFLOW, r"cp [^\n]*" + re.escape(name) + r"[^\n]* dist/", name + " must be copied into dist/")
+        self.assertIn("*.deb", sums_line, "both .deb files (versioned and fixed name) must be listed in SHA256SUMS")
+        self.assertIn("dist/channelview-latest.deb", WORKFLOW)
+        self.assertIn("releases/latest", WORKFLOW, "the release notes must point to the latest release")
+
+    def test_the_readme_sends_people_to_the_latest_release(self):
+        self.assertRegex(README, r"(?m)^## Download$")
+        self.assertRegex(README, r"\]\(https://github\.com/[\w.-]+/[\w.-]+/releases/latest\)", "a link to the latest release near the top")
+        for name in FIXED_NAMES:
+            self.assertRegex(README, r"releases/latest/download/" + re.escape(name) + r"\b", name + " needs its permanent address in the README")
+        self.assertIn("Download ZIP", README, "the README must say why the ZIP button / a clone is not the way to get it")
+
+    def test_the_install_steps_do_not_name_a_version(self):
+        """A hard-coded 'apt install ./channelview_1.1.0_all.deb' is stale with the next release and is a download of an old version."""
+        install = README.split("## Install on Debian / Ubuntu", 1)[1].split("\n## ", 1)[0]
+        self.assertIn("apt install ./channelview-latest.deb", install)
+        self.assertNotRegex(install, r"channelview_\d[^\s`]*_all\.deb")
+
+    def test_the_names_in_the_readme_are_the_names_the_workflow_makes(self):
+        for name in re.findall(r"releases/latest/download/([\w.-]+)", README):
+            self.assertIn(name, FIXED_NAMES + ("SHA256SUMS.sig",), name)
+            if name != "SHA256SUMS.sig":
+                self.assertIn(name, WORKFLOW)
+
+
+if __name__ == "__main__":
+    unittest.main()

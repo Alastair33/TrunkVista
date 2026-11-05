@@ -5,6 +5,8 @@
   </picture>
 </h1>
 
+> **Download ChannelView from the [latest release](https://github.com/Alastair33/ChannelView/releases/latest)** - not with *Code → Download ZIP* and not by cloning: the branch can hold changes that are not released yet. [Details](#download)
+
 ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
 
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
@@ -17,6 +19,47 @@ ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behi
 python3 channelview.py --demo      # try it with simulated Cisco devices, no Zabbix needed -> http://127.0.0.1:8088
 channelview_demo.html              # or just open this file in a browser: a standalone demo
 ```
+
+Both files are part of every [release](#download).
+
+## Download
+
+**Always take ChannelView from the newest release:** <{REPO}/releases/latest>
+
+The *Code → Download ZIP* button and `git clone` give you the `main` branch as it is right now. That can contain changes that are not released and have not been through the release checks (tests, a real install on a clean machine, checksums). The Releases page is where finished versions are. Every release carries these files, always under the same names:
+
+| I want to ... | File in the latest release |
+|---|---|
+| install it on Debian / Ubuntu | `channelview-latest.deb` (the same package as `channelview_<version>_all.deb`) |
+| run it on another system with Python 3.9+ | `channelview.py` (one file, standard library only) |
+| try it without a Zabbix | `channelview_demo.html` (open it in a browser) |
+| check what I downloaded | `SHA256SUMS` (and `SHA256SUMS.sig` when the release is signed) |
+
+Addresses that always lead to the newest release (pre-releases are never "latest"):
+
+```
+{REPO}/releases/latest/download/channelview-latest.deb
+{REPO}/releases/latest/download/channelview.py
+{REPO}/releases/latest/download/channelview_demo.html
+{REPO}/releases/latest/download/SHA256SUMS
+```
+
+On a server, download and check the package in one go:
+
+```
+curl -fLO {REPO}/releases/latest/download/channelview-latest.deb
+curl -fLO {REPO}/releases/latest/download/SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS            # must say: channelview-latest.deb: OK
+```
+
+While the repository is **private** these addresses only work in a browser that is signed in to GitHub. On a server use the GitHub command-line tool (`gh auth login` once), which downloads the latest release when you do not name one:
+
+```
+gh release download --repo Alastair33/ChannelView --pattern channelview-latest.deb --pattern SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+Once it is installed, `sudo channelview-update` keeps it on the newest release - see *Updating from GitHub*. To work **on** the program, clone the repository instead (see *Development*): a checkout is for developers, not for running a server.
 
 ## Screenshots
 
@@ -146,11 +189,11 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
 
-1. Download `channelview_<version>_all.deb` from the repository's **Releases** page.
+1. Download `channelview-latest.deb` and `SHA256SUMS` from the **[latest release](https://github.com/Alastair33/ChannelView/releases/latest)** and check them (see *Download* above).
 2. Install it:
 
    ```
-   sudo apt install ./channelview_1.1.0_all.deb
+   sudo apt install ./channelview-latest.deb
    ```
 
    This creates the `channelview` system user, installs the systemd service `channelview`, enables it and starts it.
@@ -219,7 +262,7 @@ sudo channelview-update --version 1.0.0 --force     # go back to a given release
 sudo channelview-update --channel prerelease        # release candidates too (or CHANNELVIEW_UPDATE_CHANNEL=prerelease in /etc/default/channelview)
 ```
 
-It reads `CHANNELVIEW_UPDATE_REPO` from `/etc/default/channelview` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the newest release, checks them, and installs with `apt`. Your settings in `/etc/default/channelview`, your connections, layouts and the edit token are kept.
+It reads `CHANNELVIEW_UPDATE_REPO` from `/etc/default/channelview` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/channelview`, your connections, layouts and the edit token are kept.
 
 **Automatic updates** are off. To check every night (about 03:30, random delay up to an hour) and install:
 
@@ -307,7 +350,7 @@ The first release (the notes are already written under `## [1.1.0]`; later ones:
 packaging/release.sh --push 1.1.0
 ```
 
-What happens after the push: GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the `.deb`, **installs / upgrades / updates / removes / purges it on a clean runner**, and publishes the release with `channelview_1.1.0_all.deb`, `channelview_demo.html`, `SHA256SUMS` (and `SHA256SUMS.sig`). If anything fails nothing is published – fix it, delete the tag (`git push --delete origin v1.1.0; git tag -d v1.1.0`) and release again. Servers get it with `sudo channelview-update`.
+What happens after the push: GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the `.deb`, **installs / upgrades / updates / removes / purges it on a clean runner**, and publishes the release with `channelview_1.1.0_all.deb`, the same package again as `channelview-latest.deb`, `channelview.py`, `channelview_demo.html` and `SHA256SUMS` (and `SHA256SUMS.sig`). The fixed names are what makes `releases/latest/download/<name>` always serve the newest release (see *Download*); `channelview-update` ignores `channelview-latest.deb` because it looks for `channelview_<version>_all.deb`. If anything fails nothing is published – fix it, delete the tag (`git push --delete origin v1.1.0; git tag -d v1.1.0`) and release again. Servers get it with `sudo channelview-update`.
 
 A tag with a dash (`v1.2.0-rc.1`) is a **pre-release**: only servers on the `prerelease` channel see it. Inside the package its version is `1.2.0~rc.1`, which sorts before `1.2.0`. The file is called `channelview_1.2.0-rc.1_all.deb` because GitHub renames a `~` in file names.
 
@@ -378,6 +421,8 @@ The service runs as its own user `channelview`, sandboxed by systemd (no access 
 | Updater: "API rate limit is used up" | GitHub allows 60 unauthenticated API calls per hour per address; use a token file |
 
 ## Development
+
+Clone the repository only to work on the program. To *use* ChannelView take the [latest release](#download): the branch you clone can be ahead of it.
 
 ```
 python3 channelview.py --demo                       # run from a checkout
