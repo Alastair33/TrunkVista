@@ -109,6 +109,22 @@ Hover a tile for the device's details, click it (or press Enter) to open them. A
 Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/ChannelView/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
 
 <!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
+### What's new in 1.2.1
+
+*2026-11-05*
+
+People who download ChannelView are now sent to the **latest release**, never to the branch.
+
+- **Fixed file names in every release.** Besides `channelview_<version>_all.deb`, each release carries `channelview-latest.deb` (the same package),
+  `channelview.py` (the single program file, for systems without apt), `channelview_demo.html` and `SHA256SUMS`, which lists all of them. GitHub's
+  `releases/latest/download/<name>` address therefore always serves the newest full release (pre-releases are never "latest"). `channelview-update`
+  is unaffected: it still looks for `channelview_<version>_all.deb` only.
+- **README.** A new *Download* section (and a note under the logo) says to take ChannelView from the latest release and not with *Code → Download ZIP*
+  or a clone of `main`, which can hold unreleased changes; it lists the files and their permanent addresses, how to check the checksums, and how
+  to download from a private repository with `gh`. The Debian install steps no longer name a version, *Updating* says that only the newest full
+  release is installed, and *Development* says that a clone is for working on the program.
+- The release notes on GitHub end with the same advice. A test keeps the README and the release workflow in agreement about the file names.
+
 ### What's new in 1.2.0
 
 *2026-11-05*
@@ -165,24 +181,6 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 - The logo files are in the repository under `docs/logo`: SVG and PNG logos for dark and light backgrounds, one-colour marks, app icon,
   favicon, a 1280 x 640 social preview image, the colour and usage rules, and the script that draws them.
 - The README now opens with the logo and shows screenshots of the interface (demo data) in `docs/screenshots`.
-
-### What's new in 1.1.0
-
-*2026-11-04*
-
-- **Renamed from "Zabbix Dashboard" to ChannelView** (before the first public release): program `channelview.py`, package, commands
-  (`channelview-update`, `channelview-cert`), service, folders (`/var/lib/channelview`, `/etc/channelview`) and settings (`CHANNELVIEW_*`)
-  all use the lowercase name that Debian requires; the page, README and release titles say ChannelView. The settings the page keeps in
-  the browser (graph range, refresh interval, list view) and the standalone demo's saved connections are stored under new
-  `channelview-*` names, so a browser that used the old name starts with the defaults.
-- **HTTPS built in** - no Apache or Nginx needed: `--tls-cert` / `--tls-key` (or `CHANNELVIEW_TLS_CERT` / `CHANNELVIEW_TLS_KEY` in `/etc/default/channelview`).
-  TLS 1.2 or newer; a renewed certificate file is used without a restart; `http://` typed on the HTTPS port is redirected to `https://`;
-  an unusable certificate stops the start with a clear message.
-- `channelview-cert`: makes a self-signed certificate (names and addresses of the machine) and prints the two settings to use.
-- `custom.css` in the data folder (`/var/lib/channelview/custom.css`): your own style rules, added after the built-in ones and read at every
-  page load. Updates never touch it.
-- `packaging/release.sh patch | minor | major`: next version, `[Unreleased]` notes become the release section, tests, commit, tag
-  (`--push` publishes). Pre-releases (`X.Y.Z-rc.1`) keep the notes for the final release.
 <!-- whats-new:end -->
 
 ## Install on Debian / Ubuntu

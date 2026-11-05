@@ -4,6 +4,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-11-05
+
 People who download ChannelView are now sent to the **latest release**, never to the branch.
 
 - **Fixed file names in every release.** Besides `channelview_<version>_all.deb`, each release carries `channelview-latest.deb` (the same package),
