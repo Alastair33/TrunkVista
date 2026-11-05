@@ -4,6 +4,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-11-05
+
 - **New logo.** A C made of four link segments in the usage colours (green, lime, amber, orange) around a blue node. It is now in the page
   header, replacing the plain diamond, and is the browser tab icon (a drawing tuned to stay readable at 16 px). The header mark's centre node
   follows `--accent`, so a `custom.css` accent colour restyles it.
