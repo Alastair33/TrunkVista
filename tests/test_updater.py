@@ -124,7 +124,7 @@ class Settings(Base):
 
     def test_repo_comes_from_the_defaults_file(self):
         self.release("1.0.0")
-        out, err = io.StringIO(), io.StringIO()
+        out = io.StringIO()
         Path(self.tmp, "dd").write_text("CHANNELVIEW_UPDATE_REPO=owner/name\n")
         with contextlib.redirect_stdout(out):
             rc = upd.main(["--check", "--api-url", self.base, "--defaults-file", self.tmp + "/dd"])
@@ -190,7 +190,7 @@ class Checking(Base):
         self.assertEqual(rc, 1)
         self.assertIn("no stable release", err)
         self.release("1.0.0")
-        out, err = io.StringIO(), io.StringIO()
+        err = io.StringIO()
         with contextlib.redirect_stderr(err):
             rc = upd.main(["--repo", "someone/else", "--api-url", self.base, "--defaults-file", self.tmp + "/none"])
         self.assertEqual(rc, 1)

@@ -10,6 +10,7 @@ ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behi
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
 - **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, proxy, OS, model, …
 - **Playlists** and a kiosk mode for NOC wall displays, a built-in editor, a connection menu for your Zabbix API.
+- **Dark and light** colour themes (dark is the default), switched with a button in the header or the **T** key; *Auto* follows the system.
 - One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
 
 ```
@@ -54,6 +55,11 @@ Hover a tile for the device's details, click it (or press Enter) to open them. A
 **Playlists and kiosk mode.** A playlist rotates through tabs on a timer; kiosk mode hides the header and the controls (a Back button and the playlist progress remain), for a wall display.
 
 ![Kiosk mode showing a playlist](docs/screenshots/08-kiosk-playlist.png)
+
+**Light mode.** The *◐ / ☀ / ☾* button in the header (or the **T** key) cycles *Dark* (the default), *Light* and *Auto* (follows the system setting). The map, graphs, heatmap, hover cards and dialogs all follow; see [Changing the design](#changing-the-design) for wall displays and `custom.css`.
+
+![The weathermap in light mode](docs/screenshots/11-light-weathermap.png)
+![The heatmap in light mode with the details of a device under the pointer](docs/screenshots/12-light-heatmap-details.png)
 
 ## Release notes
 
@@ -171,7 +177,7 @@ sudo systemctl restart channelview      # now:  https://<server>:8088/
   install -D -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/channelview/tls/server.crt
   install -D -m 0640 -g channelview "$RENEWED_LINEAGE/privkey.pem" /etc/channelview/tls/server.key
   ```
-- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools), run it on **another machine**, require authentication there, and let only that machine reach the port. A proxy on the *same* machine connects from 127.0.0.1, which the dashboard treats as the local administrator – every viewer behind it would get the edit token.
+- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools), run it on **another machine**, require authentication there, and let only that machine reach the port. A proxy on the *same* machine connects from 127.0.0.1, which the dashboard treats as the local administrator – every viewer behind it could get the edit token. (The dashboard does not hand the token out to a request that carries proxy headers such as `X-Forwarded-For`, `X-Real-IP`, `Forwarded` or `Via`, but not every proxy sends them, so do not rely on it.)
 
 ## Updating from GitHub
 
@@ -210,7 +216,8 @@ Look at it with `systemctl list-timers channelview-update.timer` and `journalctl
 sudo nano /var/lib/channelview/custom.css
 ```
 ```css
-:root { --accent: #ff9f1a; --bg: #05080c; }     /* colours of the interface */
+:root { --accent: #ff9f1a; }                    /* colours of the interface, in both themes */
+:root[data-theme=dark] { --bg: #05080c; }       /* only in the dark theme (see Light and dark below) */
 body  { font-size: 15px; }
 ```
 
@@ -223,7 +230,26 @@ body  { font-size: 15px; }
 | `--accent` | selected items, links, highlights |
 | `--ok`, `--bad`, `--warn` | green / red / amber in the interface (badges, buttons) |
 
-This restyles the **interface** (header, panels, buttons, text, fonts, sizes). The colours of the map itself – link colours, the usage scale, device status dots – are drawn by the program and are changed in a release, see below. Press F12 in the browser to find the element and class names for finer rules. Delete the file to go back to the built-in look. Size limit 256 KB.
+This restyles the **interface** (header, panels, buttons, text, fonts, sizes) and, through the variables listed under *Light and dark* below, the frame, labels and graph colours of the map. The status and usage colours – link colours, the usage scale, device status dots – are the same in both themes, are drawn by the program and are changed in a release, see below. Press F12 in the browser to find the element and class names for finer rules. Delete the file to go back to the built-in look. Size limit 256 KB.
+
+**Light and dark.** The button in the header (◐ Auto, ☀ Light, ☾ Dark) or the **T** key switches the theme; it is remembered in that browser. **Dark is the default**, so a wall display does not turn white by itself when you update. *Auto* follows the system setting (and changes with it while the page is open). For a display you cannot click, put the theme in its address – it is remembered like the other choices:
+
+```
+http://dashboard:8088/#kiosk=1&play=wall&theme=light      # theme=dark | light | auto
+```
+
+`custom.css` works in both themes. A plain `:root { ... }` rule applies to **both**; to change one theme only, use `:root[data-theme=light] { ... }` or `:root[data-theme=dark] { ... }` (these win over the plain rule). Besides the variables above, the map has its own:
+
+| Variable | Used for |
+|---|---|
+| `--on-accent` | text on accent-coloured buttons |
+| `--hl`, `--hover` | selected and hovered rows and menu items |
+| `--nodefill`, `--sel` | the inside of a device on the map, and its outline when selected |
+| `--halo`, `--iftag`, `--lname` | outline of map labels, interface names beside a link, link name |
+| `--mapbg1`, `--mapbg2`, `--mapgrid` | the map background (centre, edge) and the grid shown while editing |
+| `--gab`, `--gba` | the two lines of the traffic graph (first device to second, and back) |
+
+The complete list is the first two rules of the page's CSS (`:root` for dark, `:root:where([data-theme=light])` for light): the two palettes define the same names, and a test keeps them that way.
 
 **The logo.** The header shows the mark (a C of link segments in the usage colours around a blue node) and the browser tab uses the same drawing as its icon. The centre node follows `--accent`, so a changed accent colour changes it too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
 

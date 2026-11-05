@@ -25,6 +25,21 @@ jobs:
           shellcheck packaging/build_deb.sh packaging/release.sh tests/e2e_debian.sh
           shellcheck -s sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/channelview-cert
 
+      - name: Python and page-script checks (pyflakes rules, JavaScript syntax)
+        run: |
+          pip install --quiet ruff
+          ruff check --select E9,F,B,PLE --ignore B904,B007,B008 channelview.py packaging/channelview-update packaging/whats_new.py tests tools
+          python3 - <<'EOF'
+          import re, subprocess, sys
+          from pathlib import Path
+          sys.path.insert(0, "tools")
+          src = Path("channelview.py").read_text(encoding="utf-8")
+          page = re.search(r'^PAGE = r\"\"\"(.*?)\"\"\"', src, re.S | re.M).group(1)
+          for i, js in enumerate(re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)):      # the theme script in <head> and the app script
+              Path(f"page{i}.js").write_text(js, encoding="utf-8")
+          EOF
+          for f in page*.js; do echo "node --check $f"; node --check "$f"; done
+
       - name: The standalone demo page matches the dashboard page
         run: |
           python3 tools/build_demo.py "$RUNNER_TEMP/demo.html"
