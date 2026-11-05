@@ -66,6 +66,52 @@ Hover a tile for the device's details, click it (or press Enter) to open them. A
 Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/ChannelView/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
 
 <!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
+### What's new in 1.2.0
+
+*2026-11-05*
+
+A **light mode** and a **heatmap view** for the device tabs, easier-to-read labels, and the fixes from a review of the whole program.
+
+- **Light mode.** A button in the header (or the **T** key) switches the colour theme: *Dark* (the default, as before), *Light*, or *Auto*, which
+  follows the system setting and changes with it. The choice is remembered in the browser; a wall display can be set from its address
+  (`#theme=light`, `#theme=dark` or `#theme=auto`, e.g. `...#kiosk=1&theme=light`). The map, the traffic graph, the heatmap, hover cards, menus and
+  dialogs all follow the theme. `custom.css` keeps working in both themes: a `:root { ... }` rule applies to both, `:root[data-theme=light] { ... }`
+  or `:root[data-theme=dark] { ... }` to one of them. The map's frame, label and graph colours are variables now (`--nodefill`, `--halo`,
+  `--iftag`, `--gab`, `--gba`, ...), so they can be restyled there as well.
+- **Heatmap view for device tabs**, next to List and Cards: one small tile per device, coloured by *Status*, *Busiest interface* (the usage
+  scale of the weathermaps) or *Worst problem* (Zabbix severity), with the value written on the tile and a legend above. *Sort by* and the
+  order button put the hottest devices first; hover a tile for details, click it (or press Enter) to open them. Filter, grouping, paging and
+  kiosk mode work as in the other views. A device tab can open as a heatmap by default (Edit > This tab > Style); the viewer's choice of view
+  and colour is remembered in the browser.
+- Text on a coloured fill (the usage labels on the weathermap, heatmap tiles, the usage scale) is now dark or light, whichever reads better;
+  white text on the mid greens and oranges was hard to read (about 2:1).
+- The name of the selected connection in the Connections window was almost invisible (dark text on a dark highlight); fixed.
+- The toolbar summary ("Showing 1-50 of 128 ...") wraps to its own line instead of being cut off when the toolbar is full.
+
+**Fixes from a review of the whole program**
+
+- **The edit token is no longer given to a request that comes through a reverse proxy.** A proxy on the same machine made every visitor look local, so
+  anyone who could reach the proxy could edit. A request that carries a proxy header (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`, `Forwarded`,
+  `Via`) gets a read-only page now. Not every proxy sends such a header, so the README still says: keep the dashboard on the loopback address
+  behind a proxy and protect the proxy itself.
+- The page can be opened through the IPv6 loopback address (`http://[::1]:8088`); the check of the `Host` header refused it.
+- An address that answers with something other than a Zabbix JSON-RPC reply (a web page, other JSON) is reported as a wrong URL instead of an
+  internal error.
+- `connections.json` (it holds the API tokens) is created readable by its owner only from the first byte; there was a moment during the write
+  when it carried the default permissions.
+- A connection that sends nothing is dropped after 60 s, so idle sockets cannot pile up.
+- A drag that the browser cancels (a touch that turns into a page scroll) no longer leaves the page "dragging", which had stopped the data from
+  refreshing; in edit mode a finger drags a device or a bend point instead of scrolling the page.
+- Playlists: one whose tabs have all been deleted does not start or loop on nothing, and a playlist without *loop* stops after its last tab.
+
+**Project**
+
+- The README has a **Release notes** section: every release gets a "What's new in X.Y.Z" segment (the latest three are shown, older ones are in
+  this file). `packaging/release.sh` writes it from the notes of the release, so it never differs from what GitHub shows; pre-releases are skipped.
+- The README screenshots were retaken (they still showed the old diamond logo) and two light-mode screenshots were added.
+- CI also runs ruff (pyflakes rules), a JavaScript syntax check of both page scripts, and a test that keeps the dark and light palettes
+  defining the same variables.
+
 ### What's new in 1.1.1
 
 *2026-11-05*
@@ -94,22 +140,6 @@ Each release gets its own segment below, newest first - the same text GitHub sho
   page load. Updates never touch it.
 - `packaging/release.sh patch | minor | major`: next version, `[Unreleased]` notes become the release section, tests, commit, tag
   (`--push` publishes). Pre-releases (`X.Y.Z-rc.1`) keep the notes for the final release.
-
-### What's new in 1.0.0
-
-*2026-11-04*
-
-First packaged release.
-
-- Weathermap tabs: devices joined by interface links, coloured by status and utilisation, labelled with % and bit/s per direction;
-  one bend point per link, interface names above / below the line, per-device notification switch, movable usage meter.
-- Hover a link for an in / out traffic graph; time range 5 min to 30 days (hourly Zabbix trends beyond 24 h) and data refresh interval
-  5 s to 15 min are picked in the header.
-- Device tabs (cards and sortable list, grouped by status, proxy, OS, model, ...), playlists and kiosk mode.
-- Built-in editor, demo mode (`--demo`), connection menu for Zabbix 7.0 (API token), standalone demo page.
-- Debian / Ubuntu package (`channelview_1.0.0_all.deb`): systemd service running as its own user, data in `/var/lib/channelview`,
-  settings in `/etc/default/channelview`, edit token that survives restarts (`--token-file`).
-- `channelview-update`: installs newer releases from GitHub (SHA-256 check, optional GPG signature check, optional nightly timer).
 <!-- whats-new:end -->
 
 ## Install on Debian / Ubuntu

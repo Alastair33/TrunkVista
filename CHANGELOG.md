@@ -4,6 +4,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-11-05
+
 A **light mode** and a **heatmap view** for the device tabs, easier-to-read labels, and the fixes from a review of the whole program.
 
 - **Light mode.** A button in the header (or the **T** key) switches the colour theme: *Dark* (the default, as before), *Light*, or *Auto*, which
