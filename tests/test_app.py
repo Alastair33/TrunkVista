@@ -96,6 +96,35 @@ class VersionAndDemo(unittest.TestCase):
             self.assertIsInstance(json.loads(body), dict)
             self.assertIn(f"ChannelView {app_version()} running", s.text())
 
+    def test_logo_in_header_and_tab_icon(self):
+        """The ring logo is inline in the header and the tab icons are data: URIs (the page policy only allows img-src data:)."""
+        import base64
+        import urllib.parse
+        import xml.etree.ElementTree as ET
+        with tempfile.TemporaryDirectory() as tmp, Server(tmp, "--demo", "--data-dir", tmp + "/d") as s:
+            html = s.get("/")[1].decode()
+        m = re.search(r'<span class="logo">(<svg .*?</svg>)ChannelView</span>', html, re.S)
+        self.assertTrue(m, "header must carry the inline mark followed by the name, written ChannelView")
+        def tags(root, name):   # inline SVG in HTML has no xmlns, the data: URI one has
+            return [e for e in root.iter() if e.tag.split("}")[-1] == name]
+        header = ET.fromstring(m.group(1))
+        self.assertEqual(len(tags(header, "path")), 4, "four link segments")
+        self.assertEqual([e.get("class") for e in header.iter() if e.get("class")], ["node"], "centre node takes the page accent via CSS")
+        icons = re.findall(r'<link rel="icon" type="([^"]+)"[^>]*href="(data:[^"]+)"', html)
+        self.assertEqual({t for t, _ in icons}, {"image/png", "image/svg+xml"})
+        for kind, uri in icons:
+            if kind == "image/png":
+                self.assertEqual(base64.b64decode(uri.split(",", 1)[1])[:8], b"\x89PNG\r\n\x1a\n")
+            else:
+                svg = ET.fromstring(urllib.parse.unquote(uri.split(",", 1)[1]))
+                rects = tags(svg, "rect")
+                self.assertEqual(len(rects), 1, "the tile")
+                rect = rects[0]
+                self.assertEqual((rect.get("width"), rect.get("height")), ("512", "512"), "tile must keep its size or it disappears")
+                self.assertEqual(len(tags(svg, "path")), 4)
+        self.assertNotIn("&#9670;", html, "old diamond glyph is gone")
+        self.assertNotIn('href="data:,"', html)
+
     def test_init_writes_owner_only_config_and_refuses_to_overwrite(self):
         with tempfile.TemporaryDirectory() as tmp:
             cmd = [sys.executable, str(APP), "--init", "--data-dir", tmp + "/d"]

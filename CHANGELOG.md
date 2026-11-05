@@ -4,6 +4,13 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+- **New logo.** A C made of four link segments in the usage colours (green, lime, amber, orange) around a blue node. It is now in the page
+  header, replacing the plain diamond, and is the browser tab icon (a drawing tuned to stay readable at 16 px). The header mark's centre node
+  follows `--accent`, so a `custom.css` accent colour restyles it.
+- The logo files are in the repository under `docs/logo`: SVG and PNG logos for dark and light backgrounds, one-colour marks, app icon,
+  favicon, a 1280 x 640 social preview image, the colour and usage rules, and the script that draws them.
+- The README now opens with the logo and shows screenshots of the interface (demo data) in `docs/screenshots`.
+
 ## [1.1.0] - 2026-11-04
 
 - **Renamed from "Zabbix Dashboard" to ChannelView** (before the first public release): program `channelview.py`, package, commands

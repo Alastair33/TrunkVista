@@ -1,4 +1,9 @@
-# ChannelView
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/channelview-logo-dark.svg">
+    <img src="docs/logo/channelview-logo-light.svg" alt="ChannelView" height="76">
+  </picture>
+</h1>
 
 ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
 
@@ -160,6 +165,8 @@ body  { font-size: 15px; }
 | `--ok`, `--bad`, `--warn` | green / red / amber in the interface (badges, buttons) |
 
 This restyles the **interface** (header, panels, buttons, text, fonts, sizes). The colours of the map itself – link colours, the usage scale, device status dots – are drawn by the program and are changed in a release, see below. Press F12 in the browser to find the element and class names for finer rules. Delete the file to go back to the built-in look. Size limit 256 KB.
+
+**The logo.** The header shows the mark (a C of link segments in the usage colours around a blue node) and the browser tab uses the same drawing as its icon. The centre node follows `--accent`, so a changed accent colour changes it too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
 
 **Bigger changes, for everybody – a release.** The whole page (HTML, CSS, JavaScript) is the `PAGE` text in `channelview.py`.
 
