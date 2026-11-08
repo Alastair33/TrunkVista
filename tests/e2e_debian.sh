@@ -6,7 +6,7 @@
 #   update   ->  trunkvista-update installs a newer release from a local fake GitHub (good and tampered ones)
 #   remove / reinstall / purge  ->  what stays and what goes
 #   first account  ->  with answers preseeded in debconf, and when a version without accounts is upgraded
-#   setup  ->  trunkvista-setup connects a (fake) Zabbix, switches the network and HTTPS on and off; install.sh installs from a (local) release
+#   setup  ->  trunkvista-setup connects a (fake) Zabbix, switches the network and HTTPS on and off; the release archive (build_bundle.sh) is unpacked and installed with ./install.sh, install.sh also installs from a (local) release
 #   old name  ->  an installation of the package "channelview" (the program's first name) becomes a trunkvista one, with its data, accounts,
 #                 HTTPS certificate and settings; needs a package of the old name: E2E_LEGACY_DEB=path, or the commit before the rename in the git history
 #
@@ -478,10 +478,33 @@ else
 fi
 
 # ============================================================== install.sh
-echo "== install.sh (from a local copy of a release)"
+echo "== install.sh (the release archive: wget, tar xzf, cd, sudo ./install.sh)"
 $have_systemd || manual_stop
 apt-get purge -y trunkvista channelview >/dev/null 2>&1; rm -rf "$DATA" /etc/trunkvista "$DEFAULTS" /var/lib/channelview /etc/channelview /etc/default/channelview
 for n in trunkvista channelview; do deluser --system "$n" >/dev/null 2>&1; delgroup --system "$n" >/dev/null 2>&1; done
+bundle="$work/bundle"; mkdir -p "$bundle"; chmod 0755 "$bundle"
+GITHUB_REPOSITORY=test/zbx "$repo_root/packaging/build_bundle.sh" "$deb" "$bundle" >"$work/bundle.out" 2>&1 && ok "the release archive is built from the package" || { bad "build_bundle.sh failed"; cat "$work/bundle.out"; }
+check "the archive and the stand-alone installer name this repository" bash -c "tar xzOf $bundle/trunkvista-latest.tar.gz trunkvista/install.sh | grep -q 'releases/latest/download' && ! grep -q '@REPO@' $bundle/install.sh && cmp -s $bundle/install.sh <(tar xzOf $bundle/trunkvista-latest.tar.gz trunkvista/install.sh)"
+unpacked="$work/unpacked"; mkdir -p "$unpacked"; chmod 0755 "$unpacked"
+tar xzf "$bundle/trunkvista-latest.tar.gz" -C "$unpacked"
+check "it unpacks to a folder trunkvista with the installer, the package, its checksum and a readme" bash -c "cd $unpacked/trunkvista && test -x install.sh && test -f $(basename "$deb") && test -f SHA256SUMS && test -f README.txt"
+( cd "$unpacked/trunkvista" && sh ./install.sh </dev/null >"$work/install.out" 2>&1 ); rc=$?
+[ $rc = 0 ] && ok "./install.sh installs the package that sits beside it" || { bad "install.sh failed"; cat "$work/install.out"; }
+check "it checked the package against the checksum in the archive" grep -q 'Checksum ok.' "$work/install.out"
+check "it downloaded nothing" bash -c "! grep -qi 'downloading' $work/install.out"
+check "the package is installed (version $version)" fixed "dpkg-query -W -f='\${Version}' trunkvista" "$version"
+check "without a terminal it asked nothing: a random administrator password was made" bash -c "test -s $DATA/initial-admin-password && [ \"\$(trunkvista-user list | wc -l)\" = 1 ]"
+check "no Zabbix connection was asked for: that is entered in the page" bash -c "python3 /usr/lib/trunkvista/trunkvista.py connection --data-dir $DATA list | grep -q '^No connections'"
+check "it says what is next: sign in, then the page asks for the Zabbix server" bash -c "grep -q 'Open that page and sign in' $work/install.out && grep -q 'The page asks for your Zabbix server' $work/install.out"
+check "it does not open the network by itself (only this computer)" bash -c "! grep -q '^TRUNKVISTA_HOST=0.0.0.0' $DEFAULTS"
+# a damaged or changed package is refused, also when the installer is started by its full path from somewhere else
+echo "tampered" >> "$unpacked/trunkvista/$(basename "$deb")"
+apt-get purge -y trunkvista >/dev/null 2>&1; rm -rf "$DATA" /etc/trunkvista "$DEFAULTS"
+( cd / && sh "$unpacked/trunkvista/install.sh" </dev/null >"$work/install.out" 2>&1 ); rc=$?
+[ $rc != 0 ] && ok "a package that does not match the checksum is refused" || bad "install.sh installed a tampered package"
+check "... and nothing was installed" bash -c "! dpkg -s trunkvista 2>/dev/null | grep -q '^Status: install ok installed'"
+
+echo "== install.sh on its own (downloads the release; a local copy of GitHub's release files)"
 rel="$work/release"; mkdir -p "$rel"; chmod 0755 "$rel"
 cp "$deb" "$rel/trunkvista-latest.deb"
 ( cd "$rel" && sha256sum trunkvista-latest.deb > SHA256SUMS )
@@ -493,8 +516,6 @@ TRUNKVISTA_BASE_URL="http://127.0.0.1:$RPORT" sh "$repo_root/packaging/install.s
 [ $rc = 0 ] && ok "install.sh installs the package from the release files" || { bad "install.sh failed"; cat "$work/install.out"; }
 check "it checked the download" grep -q 'Checksum ok.' "$work/install.out"
 check "the package is installed (version $version)" fixed "dpkg-query -W -f='\${Version}' trunkvista" "$version"
-check "without a terminal it asked nothing: a random administrator password was made" bash -c "test -s $DATA/initial-admin-password"
-check "it says what is next" grep -q 'sudo trunkvista-setup' "$work/install.out"
 echo "tampered" >> "$rel/trunkvista-latest.deb"
 apt-get purge -y trunkvista >/dev/null 2>&1; rm -rf "$DATA" /etc/trunkvista "$DEFAULTS"
 TRUNKVISTA_BASE_URL="http://127.0.0.1:$RPORT" sh "$repo_root/packaging/install.sh" </dev/null >"$work/install.out" 2>&1; rc=$?

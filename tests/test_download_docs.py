@@ -7,7 +7,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
-FIXED_NAMES = ("install.sh", "trunkvista-latest.deb", "trunkvista.py", "trunkvista_demo.html", "SHA256SUMS")
+FIXED_NAMES = ("trunkvista-latest.tar.gz", "install.sh", "trunkvista-latest.deb", "trunkvista.py", "trunkvista_demo.html", "SHA256SUMS")
 
 
 class DownloadInstructions(unittest.TestCase):
@@ -18,7 +18,8 @@ class DownloadInstructions(unittest.TestCase):
             self.assertRegex(WORKFLOW, r"cp [^\n]*" + re.escape(name) + r"[^\n]* dist/", name + " must be copied into dist/")
         self.assertIn("*.deb", sums_line, "both .deb files (versioned and fixed name) must be listed in SHA256SUMS")
         self.assertIn("install.sh", sums_line, "install.sh checks nothing of itself, but the list is the list of the release")
-        self.assertRegex(WORKFLOW, r"sed \"s#@REPO@#\$GITHUB_REPOSITORY#g\" packaging/install\.sh > dist/install\.sh", "the installer template gets this repository's name")
+        self.assertIn("trunkvista-latest.tar.gz", sums_line, "the archive of the four-line installation is part of the release and its checksums")
+        self.assertRegex(WORKFLOW, r"\./packaging/build_bundle\.sh \"\$1\" dist", "the installer and the archive are made by build_bundle.sh, which puts this repository's name into install.sh")
         self.assertIn("dist/trunkvista-latest.deb", WORKFLOW)
         self.assertIn("releases/latest", WORKFLOW, "the release notes must point to the latest release")
 
@@ -29,17 +30,23 @@ class DownloadInstructions(unittest.TestCase):
             self.assertRegex(README, r"releases/latest/download/" + re.escape(name) + r"\b", name + " needs its permanent address in the README")
         self.assertIn("Download ZIP", README, "the README must say why the ZIP button / a clone is not the way to get it")
 
-    def test_the_one_line_installer_is_what_the_readme_says_it_is(self):
+    def test_the_installer_is_what_the_readme_says_it_is(self):
         installer = (ROOT / "packaging" / "install.sh").read_text(encoding="utf-8")
-        self.assertIn("@REPO@", installer, "install.sh in the source tree is a template; the release workflow fills in the repository")
+        self.assertIn("@REPO@", installer, "install.sh in the source tree is a template; build_bundle.sh fills in the repository")
         self.assertIn("trunkvista-latest.deb", installer)
         self.assertIn("SHA256SUMS", installer)
         by_hand = re.sub(r"<!-- whats-new:start.*?<!-- whats-new:end -->", "", README, flags=re.S)           # (the release notes are made from CHANGELOG.md)
+        four = "wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz\ntar xzf trunkvista-latest.tar.gz\ncd trunkvista\nsudo ./install.sh\n"
+        self.assertEqual(by_hand.count(four), 2, "the four lines in the quick start and in the install section")
         self.assertEqual(by_hand.count("releases/latest/download/install.sh | sudo sh"), 2, "the one-liner in the quick start and in the install section")
         quick = README.split("## Quick start", 1)[1].split("\n## ", 1)[0]
-        self.assertIn("install.sh | sudo sh", quick)
-        self.assertIn("trunkvista-setup", quick)
+        self.assertIn(four, quick)
+        self.assertIn("administrator's password", quick)
+        self.assertIn("Zabbix", quick)
         self.assertIn("Quick start", README.split("## Download", 1)[0], "the quick start comes before the download details")
+        archive_notes = WORKFLOW.split("Release notes from CHANGELOG.md", 1)[1]
+        for line in ("wget https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/trunkvista-latest.tar.gz", "tar xzf trunkvista-latest.tar.gz", "cd trunkvista", "sudo ./install.sh"):
+            self.assertIn(line, archive_notes, "the release notes carry the same four lines")
 
     def test_the_install_steps_do_not_name_a_version(self):
         """A hard-coded 'apt install ./trunkvista_1.1.0_all.deb' is stale with the next release and is a download of an old version."""

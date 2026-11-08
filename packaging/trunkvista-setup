@@ -1,21 +1,23 @@
 #!/bin/sh
-# trunkvista-setup - finish the installation in one go: the Zabbix connection, who may open the dashboard (this computer, or other PCs over
-# HTTPS), and the nightly update check. Run it with sudo, as often as you like - it changes only what you answer.
+# trunkvista-setup - the optional extras after the installation: who may open the dashboard (this computer, or other PCs over HTTPS) and the
+# nightly update check. Run it with sudo, as often as you like - it changes only what you answer. (The Zabbix server and its API token are
+# entered in the web page, not here; the Zabbix options below are for scripted installations only.)
 #
-#   sudo trunkvista-setup                       asks three short questions; Enter takes the answer in [brackets]
-#   sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-file /root/zabbix.token --network --yes     no questions
+#   sudo trunkvista-setup                       asks two short questions; Enter takes the answer in [brackets]
+#   sudo trunkvista-setup --network             other PCs may open it: listens everywhere and switches on HTTPS (no questions)
+#   sudo trunkvista-setup --local               this computer only (the default after an installation)
+#   sudo trunkvista-setup --auto-update | --no-auto-update      check GitHub every night and install new releases / stop doing that
 #
-# Zabbix:    --zabbix-url URL            the Zabbix server (/api_jsonrpc.php is added). It is tried first and saved only if it works.
-#            --token-file FILE | --token-stdin    the API token (Zabbix: Users > API tokens), first line of the file / of standard input
-#            --zabbix-user NAME          log in with this user and a password instead of a token (the file / stdin then holds the password)
-#            --zabbix-name TEXT          how the connection is called in the page (default: the host name)
-#            --no-verify-tls             Zabbix has a self-signed HTTPS certificate
 # Access:    --network                   other PCs may open the dashboard: listens on all interfaces and switches on HTTPS
-#            --local                     this computer only (the default after an installation)
+#            --local                     this computer only
 #            --no-https                  with --network: no HTTPS (only behind a reverse proxy that does it - see the README)
-# Updates:   --auto-update | --no-auto-update    check GitHub every night and install new releases / stop doing that
+# Updates:   --auto-update | --no-auto-update
 # Other:     --yes, -y                   never ask; do what the options say and leave everything else as it is
 #            --no-restart                do not restart the service afterwards
+# Scripted:  --zabbix-url URL            save a Zabbix connection (tried first, saved only if it works; /api_jsonrpc.php is added)
+#            --token-file FILE | --token-stdin    its API token: first line of the file / of standard input
+#            --zabbix-user NAME          log in with this user and a password (in the file / stdin) instead of a token
+#            --zabbix-name TEXT, --no-verify-tls    its name in the page; accept a self-signed HTTPS certificate on the Zabbix side
 set -eu
 
 DEFAULTS="${TRUNKVISTA_DEFAULTS:-/etc/default/trunkvista}"
@@ -47,7 +49,7 @@ while [ $# -gt 0 ]; do
         --no-auto-update) autoupd=no; shift ;;
         --yes|-y) assume_yes=yes; shift ;;
         --no-restart) restart=no; shift ;;
-        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        -h|--help) sed -n '2,/^set -eu/p' "$0" | sed '$d' | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) die "unknown option $1 (see --help)" ;;
     esac
 done
@@ -90,7 +92,8 @@ set_default() {       # set_default KEY VALUE: changes KEY=..., else switches a 
     [ "$(get_default "$1")" != "$2" ] || return 0
     tmp="$DEFAULTS.new.$$"
     [ -e "$DEFAULTS" ] || : > "$DEFAULTS"
-    awk -v k="$1" -v v="$2" '
+    V="$2" awk -v k="$1" '
+        BEGIN { v = ENVIRON["V"] }              # (not -v: awk would interpret a backslash in the value)
         NR == FNR { if ($0 ~ "^" k "=") have = 1; next }
         $0 ~ "^" k "=" { if (!done) { print k "=" v; done = 1 }; next }
         !have && !done && $0 ~ "^#" k "=" { print k "=" v; done = 1; next }
@@ -102,7 +105,7 @@ set_default() {       # set_default KEY VALUE: changes KEY=..., else switches a 
     changed=yes
 }
 
-# ---- 1. Zabbix
+# ---- Zabbix (scripted installations)
 connections() { prog connection --data-dir "$DATA" list 2>/dev/null || true; }
 add_connection() {    # add_connection URL: the program tests it and saves it only if Zabbix accepts it
     set -- connection --data-dir "$DATA" add "$1" --quiet
@@ -113,31 +116,14 @@ add_connection() {    # add_connection URL: the program tests it and saves it on
     [ "$token_stdin" = no ] || set -- "$@" --secret-stdin
     prog "$@"
 }
-step_zabbix() {
-    if [ -n "$url" ]; then
-        say "Zabbix: trying $url ..."
-        add_connection "$url" || die "the Zabbix connection was not saved; nothing else was changed"
-        changed=yes
-        return 0
-    fi
-    interactive || return 0
-    have="$(connections)"
-    case "$have" in
-        ""|"No connections yet."*) say "1. Zabbix. TrunkVista reads your devices from Zabbix. You need the server's address and an API token (in Zabbix: Users > API tokens > Create API token; a user that may read your hosts is enough)." ;;
-        *) say "1. Zabbix. Already saved:"; printf '%s\n' "$have" | sed 's/^/     /'
-           yesno "   Add or change a Zabbix server now?" n || return 0 ;;
-    esac
-    default_url=""
-    while :; do
-        ask "   Zabbix address, e.g. https://zabbix.example.com (empty: do it later in the page):" "$default_url"
-        [ -n "$ANSWER" ] || { say "   Skipped. The page asks for it at the first sign-in; or run this command again."; return 0; }
-        default_url="$ANSWER"
-        if add_connection "$ANSWER"; then changed=yes; return 0; fi
-        yesno "   Try again?" y || return 0
-    done
+step_zabbix() {       # only on request (--zabbix-url): the web page is where the Zabbix server is entered
+    [ -n "$url" ] || return 0
+    say "Zabbix: trying $url ..."
+    add_connection "$url" || die "the Zabbix connection was not saved; nothing else was changed"
+    changed=yes
 }
 
-# ---- 2. who may open it
+# ---- 1. who may open it
 ensure_https() {
     cur_cert="$(get_default TRUNKVISTA_TLS_CERT)"
     if [ -n "$cur_cert" ] && [ "$cur_cert" != "$TLS_DIR/server.crt" ]; then
@@ -168,7 +154,7 @@ step_access() {
     if [ -z "$want_access" ]; then
         interactive || return 0
         if [ "$cur" = network ] || [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ]; then pick=2; else pick=1; fi
-        say "2. Who will open the dashboard?"
+        say "1. Who will open the dashboard?"
         say "     1) a browser on this computer only"
         say "     2) browsers on other computers (the network): HTTPS is switched on, because everybody signs in with a password"
         [ -z "${SSH_CONNECTION:-}" ] || say "     (you are logged in over SSH, so this is probably a server: 2)"
@@ -187,7 +173,7 @@ step_access() {
     fi
 }
 
-# ---- 3. updates
+# ---- 2. updates
 step_updates() {
     if ! have_systemd; then
         [ -z "$autoupd" ] || say "   (No systemd here: the nightly update check was not changed.)"
@@ -198,7 +184,7 @@ step_updates() {
     if [ -z "$autoupd" ] && [ "$enabled" = no ] && interactive; then
         case "$(get_default TRUNKVISTA_UPDATE_REPO)" in
             ""|OWNER/REPO) ;;
-            *) say "3. Updates. TrunkVista can look on GitHub every night and install a newer release by itself (checked against its checksums). You can always update by hand with: sudo trunkvista-update"
+            *) say "2. Updates. TrunkVista can look on GitHub every night and install a newer release by itself (checked against its checksums). You can always update by hand with: sudo trunkvista-update"
                if yesno "   Install new releases automatically?" n; then autoupd=yes; fi ;;
         esac
     fi
@@ -244,8 +230,8 @@ summary() {
     fi
     have="$(connections)"
     case "$have" in
-        ""|"No connections yet."*) say "  Zabbix: not connected yet - the page asks for it at your first sign-in." ;;
-        *) say "  Zabbix: saved (change it in the page, or run trunkvista-setup again)." ;;
+        ""|"No connections yet."*) say "  Zabbix: not connected yet - the page asks for it when you sign in (its address and an API token)." ;;
+        *) say "  Zabbix: a connection is saved (change it in the page)." ;;
     esac
     if [ "$scheme" = https ] && [ -s "$TLS_DIR/server.crt" ] && [ "$(get_default TRUNKVISTA_TLS_CERT)" = "$TLS_DIR/server.crt" ]; then
         say "  Browsers warn about this certificate (it is signed by this server itself) until you import $TLS_DIR/server.crt as a trusted certificate on each PC that opens the page."
@@ -264,7 +250,7 @@ summary() {
 }
 
 if interactive; then
-    say "TrunkVista setup - three short questions. Enter takes the answer in [brackets]. Nothing here is final: run trunkvista-setup again whenever you like."
+    say "TrunkVista setup - two short questions. Enter takes the answer in [brackets]. Nothing here is final: run trunkvista-setup again whenever you like."
     say ""
 fi
 step_zabbix

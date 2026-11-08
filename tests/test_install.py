@@ -230,7 +230,7 @@ class SetupOptions(ZabbixCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("Connected to Zabbix 7.0.8", r.stdout)
         self.assertIn("TrunkVista is set up.", r.stdout)
-        self.assertIn("Zabbix: saved", r.stdout)
+        self.assertIn("Zabbix: a connection is saved", r.stdout)
         self.assertIn("http://127.0.0.1:8088/", r.stdout)
         self.assertNotIn(TOKEN, r.stdout + r.stderr)
         self.assertEqual(self.box.connections()["profiles"][0]["name"], "Lab")
@@ -337,6 +337,16 @@ class SetupOptions(ZabbixCase):
         self.assertEqual(self.box.setup("--network", "--no-https", "--yes", "--no-restart").returncode, 0)
         self.assertEqual(self.box.defaults.read_text(), "TRUNKVISTA_HOST=0.0.0.0\n")
 
+    def test_a_value_with_backslashes_and_ampersands_is_written_as_it_is(self):
+        self.box.add_admin()
+        odd = self.box.dir / "tls\\n&dir"
+        odd.mkdir()
+        (odd / "server.crt").write_text("x")
+        (odd / "server.key").write_text("x")
+        r = self.box.setup("--network", "--yes", "--no-restart", TRUNKVISTA_TLS_DIR=str(odd))
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(self.box.value("TRUNKVISTA_TLS_CERT"), f"{odd}/server.crt")
+
     def test_options_that_make_no_sense_are_refused(self):
         for args, text in ((("--no-https",), "only makes sense with --network"), (("--token-stdin",), "belong to --zabbix-url"),
                            (("--bogus",), "unknown option"), (("--zabbix-url",), "needs a value"),
@@ -344,7 +354,7 @@ class SetupOptions(ZabbixCase):
             r = self.box.setup(*args, "--yes")
             self.assertNotEqual(r.returncode, 0, args)
             self.assertIn(text, r.stderr, args)
-        self.assertIn("Zabbix:", self.box.setup("--help").stdout)
+        self.assertIn("entered in the web page", self.box.setup("--help").stdout)
 
     def test_not_installed_is_said_plainly(self):
         r = self.box.setup("--yes", TRUNKVISTA_PROG=str(self.box.dir / "missing.py"))
@@ -433,47 +443,38 @@ class SetupQuestions(ZabbixCase):
         return os.waitstatus_to_exitcode(status), out.decode(errors="replace")
 
     @unittest.skipUnless(HAVE_OPENSSL, "needs openssl")
-    def test_three_answers_finish_the_installation(self):
+    def test_two_answers_finish_the_setup(self):
         self.box.add_admin()
         port = free_port()
         self.box.defaults.write_text(DEFAULT_FILE.replace("TRUNKVISTA_PORT=8088", f"TRUNKVISTA_PORT={port}"))
         with listener(port):
-            code, out = self.drive([("Zabbix address", self.url), ("API token", TOKEN), ("Choose 1 or 2:", "2"),
-                                    ("Install new releases automatically?", "y")], TRUNKVISTA_FORCE_SYSTEMD="1")
+            code, out = self.drive([("Choose 1 or 2:", "2"), ("Install new releases automatically?", "y")], TRUNKVISTA_FORCE_SYSTEMD="1")
         self.assertEqual(code, 0, out)
-        self.assertIn("Connected to Zabbix 7.0.8", out)
-        self.assertNotIn(TOKEN, out)                               # typing the token was not echoed
-        self.assertEqual(len(self.box.connections()["profiles"]), 1)
+        self.assertIn("two short questions", out)
+        self.assertNotIn("Zabbix address", out)                   # the Zabbix server is entered in the web page, never here
+        self.assertFalse((self.box.connections() or {}).get("profiles"))
+        self.assertIn("the page asks for it", out)
         self.assertEqual((self.box.value("TRUNKVISTA_HOST"), self.box.value("TRUNKVISTA_TLS_CERT")), ("0.0.0.0", f"{self.box.tls}/server.crt"))
         self.assertIn("systemctl enable --now trunkvista-update.timer", self.box.calls())
         self.assertEqual(self.box.calls()[-1], "systemctl restart trunkvista")
         self.assertIn("TrunkVista is set up.", out)
         self.assertIn(f":{port}/", out)
 
-    def test_enter_alone_skips_zabbix_and_keeps_this_computer_only(self):
-        code, out = self.drive([("Zabbix address", ""), ("Choose 1 or 2:", "")])
+    def test_enter_alone_keeps_this_computer_only(self):
+        code, out = self.drive([("Choose 1 or 2:", "")])
         self.assertEqual(code, 0, out)
-        self.assertIn("Skipped", out)
-        self.assertIsNone(self.box.connections())
         self.assertEqual(self.box.defaults.read_text(), DEFAULT_FILE)
         self.assertIn("http://127.0.0.1:8088/", out)
 
-    def test_a_wrong_token_is_explained_and_asked_again(self):
-        code, out = self.drive([("Zabbix address", self.url), ("API token", "wrong"), ("Try again?", "y"), ("Zabbix address", ""), ("API token", TOKEN),
-                                ("Choose 1 or 2:", "1")])
-        self.assertEqual(code, 0, out)
-        self.assertIn("rejected the credentials", out)
-        self.assertEqual(len(self.box.connections()["profiles"]), 1)
-
     def test_over_ssh_the_default_is_the_network(self):
         self.box.add_admin()
-        code, out = self.drive([("Zabbix address", ""), ("Choose 1 or 2:", "")], SSH_CONNECTION="10.0.0.1 5000 10.0.0.2 22")
+        code, out = self.drive([("Choose 1 or 2:", "")], SSH_CONNECTION="10.0.0.1 5000 10.0.0.2 22")
         self.assertEqual(code, 0, out)
         self.assertIn("probably a server", out)
         self.assertEqual(self.box.value("TRUNKVISTA_HOST"), "0.0.0.0")
 
     def test_a_wrong_answer_is_asked_again(self):
-        code, out = self.drive([("Zabbix address", ""), ("Choose 1 or 2:", "3"), ("Please type 1 or 2.", ""), ("Choose 1 or 2:", "1")])
+        code, out = self.drive([("Choose 1 or 2:", "3"), ("Please type 1 or 2.", ""), ("Choose 1 or 2:", "1")])
         self.assertEqual(code, 0, out)
 
     @unittest.skipUnless(HAVE_OPENSSL, "needs openssl")
@@ -493,12 +494,11 @@ class SetupQuestions(ZabbixCase):
         self.assertFalse(self.box.connections()["profiles"][0]["verify_tls"])
         self.assertIn("Connected to Zabbix", out)
 
-    def test_an_existing_connection_is_shown_and_kept_unless_you_say_so(self):
+    def test_a_saved_connection_is_kept_and_not_asked_about(self):
         self.box.cli("add", self.url, "--name", "Lab", "--secret-stdin", stdin=TOKEN + "\n")
-        code, out = self.drive([("Add or change a Zabbix server now?", "n"), ("Choose 1 or 2:", "1")])
+        code, out = self.drive([("Choose 1 or 2:", "1")])
         self.assertEqual(code, 0, out)
-        self.assertIn("Already saved", out)
-        self.assertIn("Lab", out)
+        self.assertIn("a connection is saved", out)
         self.assertEqual(len(self.box.connections()["profiles"]), 1)
 
 
@@ -509,17 +509,13 @@ case "$1" in update) touch "$STUB_DIR/apt-updated"; exit 0 ;; esac
 for last; do :; done
 [ -f "$last" ] && echo "deb-size $(wc -c < "$last")" >> "$STUB_LOG"
 [ -z "${DEBIAN_FRONTEND:-}" ] || echo "frontend $DEBIAN_FRONTEND" >> "$STUB_LOG"
-[ -z "${TRUNKVISTA_INSTALLER:-}" ] || echo "from-installer" >> "$STUB_LOG"
+if [ "$1" = install ] && [ -t 0 ]; then printf 'asked: '; read -r x; echo "got:$x" >> "$STUB_LOG"; echo "got:$x"; fi      # (the administrator's password question)
 [ ! -e "$STUB_DIR/apt-fails" ] || [ -e "$STUB_DIR/apt-updated" ] || exit 100      # (the first try fails until the package lists were refreshed)
 """
-SETUP_STUB = """#!/bin/sh
-echo "trunkvista-setup ran" >> "$STUB_LOG"
-if [ -t 0 ]; then printf 'asked: '; read -r x; echo "got:$x"; fi
-"""
 
 
-class InstallScript(unittest.TestCase):
-    """packaging/install.sh against a fake release server, with apt-get / dpkg / trunkvista-setup replaced by stubs."""
+class InstallCase(unittest.TestCase):
+    """The set-up shared by the tests of packaging/install.sh: a fake release server and apt-get / dpkg replaced by stubs."""
 
     DEB = b"not really a package, but it has a size"
 
@@ -535,7 +531,7 @@ class InstallScript(unittest.TestCase):
         self.log = self.dir / "stub.log"
         self.log.write_text("")
         self.publish("trunkvista-latest.deb", self.DEB)
-        for name, text in (("apt-get", APT_STUB), ("trunkvista-setup", SETUP_STUB), ("id", "#!/bin/sh\necho 0\n"),
+        for name, text in (("apt-get", APT_STUB), ("id", "#!/bin/sh\necho 0\n"),
                            ("dpkg", "#!/bin/sh\n:\n"), ("dpkg-query", "#!/bin/sh\nprintf 9.9.9\n")):
             (self.bin / name).write_text(text)
             (self.bin / name).chmod(0o755)
@@ -572,18 +568,21 @@ class InstallScript(unittest.TestCase):
     def calls(self):
         return self.log.read_text().splitlines()
 
-    def test_it_downloads_checks_installs_and_says_what_is_next(self):
+
+
+class InstallScript(InstallCase):
+    """install.sh on its own: it downloads the newest release (against the fake release server)."""
+
+    def test_it_downloads_checks_and_installs(self):
         r = self.run_it()
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Downloading trunkvista-latest.deb", r.stdout)
         self.assertIn("Checksum ok.", r.stdout)
         self.assertIn("TrunkVista 9.9.9 is installed.", r.stdout)
-        self.assertIn("sudo trunkvista-setup", r.stdout)                  # no terminal here: it does not start the questions
         calls = self.calls()
-        self.assertRegex(calls[0], r"^apt-get install -y /.+/trunkvista-latest\.deb$")
+        self.assertRegex(calls[0], r"^apt-get install -y -q /.+/trunkvista-latest\.deb$")
         self.assertIn(f"deb-size {len(self.DEB)}", calls)
-        self.assertIn("from-installer", calls)                            # the package knows it need not say "run trunkvista-setup": the installer does
         self.assertIn("frontend noninteractive", calls)                   # nobody to ask: apt must not wait for answers
-        self.assertNotIn("trunkvista-setup ran", calls)
 
     def test_a_damaged_download_is_not_installed(self):
         (self.web / "trunkvista-latest.deb").write_bytes(self.DEB + b"x")
@@ -631,7 +630,10 @@ class InstallScript(unittest.TestCase):
     def test_options(self):
         self.assertEqual(self.run_it("--bogus").returncode, 1)
         self.assertIn("unknown option", self.run_it("--bogus").stderr)
-        self.assertIn("curl -fsSL", self.run_it("--help").stdout)
+        helptext = self.run_it("--help").stdout
+        self.assertIn("curl -fsSL", helptext)
+        self.assertIn("sudo ./install.sh", helptext)
+        self.assertIn("wget", helptext)
 
     def test_not_root_and_not_debian_are_said_plainly(self):
         (self.bin / "id").write_text("#!/bin/sh\necho 1000\n")
@@ -641,7 +643,7 @@ class InstallScript(unittest.TestCase):
         # a machine without apt-get: only the commands the script itself needs are on the path
         farm = self.dir / "farm"
         farm.mkdir()
-        for name in ("mktemp", "chmod", "rm", "grep", "sha256sum", "sed", "curl", "cat", "dpkg"):
+        for name in ("mktemp", "chmod", "rm", "grep", "sha256sum", "sed", "curl", "cat", "dpkg", "dirname", "basename"):
             src = shutil.which(name)
             if src:
                 (farm / name).symlink_to(src)
@@ -661,8 +663,8 @@ class InstallScript(unittest.TestCase):
         self.assertIn("template", r.stderr)
 
     @unittest.skipUnless(os.name == "posix", "needs a pseudo terminal")
-    def test_piped_from_curl_it_still_asks_its_questions_on_the_terminal(self):
-        """`curl ... | sudo sh`: standard input is the script, yet apt and trunkvista-setup must be able to ask."""
+    def test_piped_from_curl_apt_can_still_ask_on_the_terminal(self):
+        """`curl ... | sudo sh`: standard input is the script, yet apt must be able to ask for the administrator's password."""
         import pty
         pid, fd = pty.fork()
         if pid == 0:
@@ -686,7 +688,219 @@ class InstallScript(unittest.TestCase):
         self.assertEqual(os.waitstatus_to_exitcode(status), 0, text)
         self.assertIn("got:hello", text)
         self.assertNotIn("frontend noninteractive", self.calls())
-        self.assertIn("trunkvista-setup ran", self.calls())
+
+
+class InstallFromArchive(InstallCase):
+    """install.sh unpacked beside the package (the archive of a release): it installs that package and downloads nothing."""
+
+    def setUp(self):
+        super().setUp()
+        self.pack = self.dir / "pack"
+        self.pack.mkdir()
+        self.script = self.pack / "install.sh"
+        shutil.copy(INSTALL, self.script)
+        self.deb = "trunkvista_1.3.0_all.deb"
+        self.put(self.deb, b"the package in the archive")
+        self.base = "http://127.0.0.1:1"          # nothing listens there: any attempt to download fails loudly
+
+    def put(self, name, data, sums=True):
+        import hashlib
+        (self.pack / name).write_bytes(data)
+        if sums:
+            lines = [x for x in (self.pack / "SHA256SUMS").read_text().splitlines() if not x.endswith("  " + name)] if (self.pack / "SHA256SUMS").exists() else []
+            lines.append(f"{hashlib.sha256(data).hexdigest()}  {name}")
+            (self.pack / "SHA256SUMS").write_text("\n".join(lines) + "\n")
+
+    def start(self, *args, cwd=None, script=None, **env):
+        return subprocess.run(["sh", str(script or self.script), *args], capture_output=True, text=True, env=self.env(**env), timeout=60,
+                              stdin=subprocess.DEVNULL, start_new_session=True, cwd=cwd or self.dir)
+
+    def test_it_installs_the_package_beside_it_and_checks_it(self):
+        r = self.start()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Checksum ok.", r.stdout)
+        self.assertNotIn("Downloading", r.stdout)
+        self.assertIn("TrunkVista 9.9.9 is installed.", r.stdout)
+        self.assertRegex(self.calls()[0], r"^apt-get install -y -q /.+/trunkvista_1\.3\.0_all\.deb$")
+        self.assertIn(f"deb-size {len(b'the package in the archive')}", self.calls())
+        self.assertIn("frontend noninteractive", self.calls())
+
+    def test_it_does_not_matter_where_it_is_started_from(self):
+        for cwd, arg in ((self.pack, "./install.sh"), (self.dir, "pack/install.sh"), (Path("/"), str(self.script))):
+            self.log.write_text("")
+            r = subprocess.run(["sh", arg], capture_output=True, text=True, env=self.env(), timeout=60, stdin=subprocess.DEVNULL, start_new_session=True, cwd=cwd)
+            self.assertEqual(r.returncode, 0, (cwd, arg, r.stdout + r.stderr))
+            self.assertEqual(len([c for c in self.calls() if c.startswith("apt-get install")]), 1)
+
+    def test_a_changed_package_is_not_installed(self):
+        (self.pack / self.deb).write_bytes(b"the package in the archive, changed")
+        r = self.start()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("does not match SHA256SUMS", r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_package_the_checksum_file_does_not_list_is_not_installed(self):
+        (self.pack / "SHA256SUMS").write_text("0" * 64 + "  something-else.deb\n")
+        r = self.start()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("is not listed in SHA256SUMS", r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_the_dots_of_the_file_name_are_not_wildcards_in_the_checksum_lookup(self):
+        import hashlib
+        (self.pack / "SHA256SUMS").write_text(f"{hashlib.sha256(b'the package in the archive').hexdigest()}  trunkvista_1x3x0_all.deb\n")
+        r = self.start()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("is not listed in SHA256SUMS", r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_binary_mode_checksum_line_is_understood(self):
+        import hashlib
+        (self.pack / "SHA256SUMS").write_text(f"{hashlib.sha256(b'the package in the archive').hexdigest()} *{self.deb}\n")
+        r = self.start()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Checksum ok.", r.stdout)
+
+    def test_without_a_checksum_file_it_says_so_and_installs(self):
+        (self.pack / "SHA256SUMS").unlink()
+        r = self.start()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("without a checksum check", r.stdout)
+        self.assertNotIn("Checksum ok.", r.stdout)
+
+    def test_two_packages_are_not_guessed_between(self):
+        self.put("trunkvista_1.2.1_all.deb", b"older")
+        r = self.start()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("more than one package", r.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_version_asked_for_is_downloaded_not_taken_from_beside_it(self):
+        self.publish("trunkvista_1.2.0_all.deb", b"from the release page")
+        r = self.start("--version", "1.2.0", TRUNKVISTA_BASE_URL=self.httpd_base())
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Downloading trunkvista_1.2.0_all.deb", r.stdout)
+        self.assertRegex(self.calls()[0], r"trunkvista_1\.2\.0_all\.deb$")
+
+    def httpd_base(self):
+        return f"http://127.0.0.1:{self.httpd.server_address[1]}"
+
+    def test_piped_into_sh_a_package_in_the_current_folder_is_ignored(self):
+        # `curl ... | sudo sh` while standing in a folder that happens to hold a package: still the release is downloaded
+        r = subprocess.run(["sh", "-c", f"cat {self.script} | sh"], capture_output=True, text=True, env=self.env(TRUNKVISTA_BASE_URL=self.httpd_base()),
+                           timeout=60, stdin=subprocess.DEVNULL, start_new_session=True, cwd=self.pack)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Downloading trunkvista-latest.deb", r.stdout)
+        self.assertRegex(self.calls()[0], r"trunkvista-latest\.deb$")
+
+    def test_the_template_check_does_not_get_in_the_way(self):
+        # the archive is used on the machine, nothing says where the repository is: no address needed (and none used)
+        env = self.env()
+        env.pop("TRUNKVISTA_BASE_URL")
+        r = subprocess.run(["sh", str(self.script)], capture_output=True, text=True, env=env, timeout=60, stdin=subprocess.DEVNULL, start_new_session=True)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+BUNDLE = ROOT / "packaging" / "build_bundle.sh"
+
+
+@unittest.skipUnless(shutil.which("tar") and shutil.which("gzip") and shutil.which("bash"), "needs tar, gzip and bash")
+class BuildBundle(unittest.TestCase):
+    """packaging/build_bundle.sh: the archive of a release, and the installer in it."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.dir = Path(self.tmp.name)
+        self.deb = self.dir / "dist" / "trunkvista_9.9.9_all.deb"
+        self.deb.parent.mkdir()
+        self.deb.write_bytes(b"a package")
+
+    def build(self, *args, repo="octo/trunk", epoch="1700000000", **env):
+        e = dict(os.environ, SOURCE_DATE_EPOCH=epoch, GITHUB_REPOSITORY=repo)
+        e.update(env)
+        return subprocess.run(["bash", str(BUNDLE), *(args or (str(self.deb),))], capture_output=True, text=True, env=e, timeout=60, cwd=self.dir)
+
+    def test_the_archive_holds_the_installer_the_package_and_its_checksum(self):
+        import hashlib
+        import tarfile
+        r = self.build()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        with tarfile.open(self.dir / "dist" / "trunkvista-latest.tar.gz") as t:
+            names = sorted(m.name for m in t.getmembers())
+            self.assertEqual(names, ["trunkvista", "trunkvista/README.txt", "trunkvista/SHA256SUMS", "trunkvista/install.sh", "trunkvista/trunkvista_9.9.9_all.deb"])
+            modes = {m.name: m.mode for m in t.getmembers()}
+            self.assertEqual(modes["trunkvista/install.sh"], 0o755)
+            self.assertTrue(all(m.uid == 0 and m.gid == 0 and m.mtime == 1700000000 for m in t.getmembers()))
+            sums = t.extractfile("trunkvista/SHA256SUMS").read().decode()
+            self.assertEqual(sums, f"{hashlib.sha256(b'a package').hexdigest()}  trunkvista_9.9.9_all.deb\n")
+            script = t.extractfile("trunkvista/install.sh").read().decode()
+            readme = t.extractfile("trunkvista/README.txt").read().decode()
+        self.assertIn("releases/latest/download/trunkvista-latest.tar.gz", script)
+        self.assertIn("octo/trunk", script)
+        self.assertNotIn("@REPO@", script)
+        self.assertIn("sudo ./install.sh", readme)
+        self.assertEqual((self.dir / "dist" / "install.sh").read_text(), script)          # the stand-alone installer is the same file
+        self.assertTrue(os.access(self.dir / "dist" / "install.sh", os.X_OK))
+
+    def test_the_same_input_gives_the_same_archive(self):
+        self.assertEqual(self.build().returncode, 0)
+        first = (self.dir / "dist" / "trunkvista-latest.tar.gz").read_bytes()
+        self.assertEqual(self.build(str(self.deb), str(self.dir / "again")).returncode, 0)
+        self.assertEqual((self.dir / "again" / "trunkvista-latest.tar.gz").read_bytes(), first)
+        self.assertEqual(self.build(epoch="1700000001").returncode, 0)
+        self.assertNotEqual((self.dir / "dist" / "trunkvista-latest.tar.gz").read_bytes(), first)       # (another timestamp: another archive)
+
+    def test_a_repository_name_that_could_break_the_substitution_is_refused(self):
+        for bad in ("a#b/c", "a/b&c", "a b/c", "just-a-name", "a/b/c", ""):
+            r = self.build(repo=bad, GIT_DIR=str(self.dir / "no-git"))
+            self.assertEqual(r.returncode, 1, bad)
+            self.assertIn("owner/name", r.stderr, bad)
+        self.assertFalse((self.dir / "dist" / "trunkvista-latest.tar.gz").exists())
+
+    def test_the_package_must_be_called_what_the_installer_looks_for(self):
+        wrong = self.dir / "dist" / "other.deb"
+        wrong.write_bytes(b"x")
+        r = self.build(str(wrong))
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("trunkvista_<version>_all.deb", r.stderr)
+
+    def test_without_an_argument_the_one_package_in_dist_is_used_but_two_are_not_guessed_between(self):
+        repo = self.dir / "repo"
+        (repo / "packaging").mkdir(parents=True)
+        (repo / "dist").mkdir()
+        shutil.copy(BUNDLE, repo / "packaging" / "build_bundle.sh")
+        shutil.copy(INSTALL, repo / "packaging" / "install.sh")
+        shutil.copy(self.deb, repo / "dist")
+        env = dict(os.environ, GITHUB_REPOSITORY="octo/trunk", SOURCE_DATE_EPOCH="1700000000")
+        run = lambda: subprocess.run(["bash", str(repo / "packaging" / "build_bundle.sh")], capture_output=True, text=True, env=env, timeout=60, cwd=self.dir)
+        r = run()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((repo / "dist" / "trunkvista-latest.tar.gz").exists())
+        (repo / "dist" / "trunkvista_9.9.8_all.deb").write_bytes(b"older")
+        r = run()
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("expected exactly one", r.stderr)
+
+    def test_the_unpacked_installer_installs_what_is_beside_it(self):
+        self.assertEqual(self.build().returncode, 0)
+        out = self.dir / "unpacked"
+        out.mkdir()
+        subprocess.run(["tar", "xzf", str(self.dir / "dist" / "trunkvista-latest.tar.gz"), "-C", str(out)], check=True)
+        bin_dir, log = self.dir / "bin", self.dir / "stub.log"
+        bin_dir.mkdir()
+        log.write_text("")
+        for name, text in (("apt-get", APT_STUB), ("id", "#!/bin/sh\necho 0\n"), ("dpkg", "#!/bin/sh\n:\n"), ("dpkg-query", "#!/bin/sh\nprintf 9.9.9\n")):
+            (bin_dir / name).write_text(text)
+            (bin_dir / name).chmod(0o755)
+        env = dict(os.environ, STUB_LOG=str(log), STUB_DIR=str(self.dir), PATH=f"{bin_dir}:{os.environ['PATH']}")
+        env.pop("DEBIAN_FRONTEND", None)
+        r = subprocess.run(["sh", "./install.sh"], capture_output=True, text=True, env=env, timeout=60, stdin=subprocess.DEVNULL, start_new_session=True,
+                           cwd=out / "trunkvista")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Checksum ok.", r.stdout)
+        self.assertIn("TrunkVista 9.9.9 is installed.", r.stdout)
+        self.assertIn("trunkvista_9.9.9_all.deb", log.read_text())
 
 
 if __name__ == "__main__":

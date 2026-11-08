@@ -26,16 +26,18 @@ Both files are part of every [release](#download).
 ## Quick start (Debian / Ubuntu)
 
 ```
-curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh
+wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz
+tar xzf trunkvista-latest.tar.gz
+cd trunkvista
+sudo ./install.sh
 ```
 
-One command from nothing to a dashboard that is running. It downloads the newest release, checks it against its checksums, installs it, and then asks you three things, each with a sensible answer in `[brackets]`:
+Four lines from nothing to a dashboard that is running. The only thing the installation asks is the **administrator's password** (Enter = a random one is made for you and kept for root to read). Then:
 
-1. the **administrator's password** (the installation asks; empty = a random one is made for you),
-2. your **Zabbix** server: its address and an API token - it is tried before it is saved, so a typo is caught right there,
-3. **who will open the dashboard**: only this computer, or other PCs on the network (HTTPS is then switched on for you).
+1. open **http://127.0.0.1:8088/** on that machine and sign in as `admin`;
+2. the page asks for your **Zabbix** server - its address and an API token - and tries them before it saves anything. That is the only place where they are entered.
 
-Then it prints the address to open. Anything you skip, you can do later: `sudo trunkvista-setup` asks again whenever you run it. Prefer to read the script first, or no `curl`? See [Install on Debian / Ubuntu](#install-on-debian--ubuntu). Not Debian? [Without the package](#without-the-package-any-system-with-python-39).
+The archive holds the installer, the package and its checksum, so it works on a machine without internet access as well: copy the archive there. Should other PCs or wall displays open the dashboard too? `sudo trunkvista-setup --network` lets them (and switches HTTPS on). No `wget` archive wanted? `curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh` downloads and checks the same package. More in [Install on Debian / Ubuntu](#install-on-debian--ubuntu); not Debian? [Without the package](#without-the-package-any-system-with-python-39).
 
 ## Download
 
@@ -45,7 +47,8 @@ The *Code → Download ZIP* button and `git clone` give you the `main` branch as
 
 | I want to ... | File in the latest release |
 |---|---|
-| install it on Debian / Ubuntu in one command | `install.sh` (downloads, checks and installs the package below, then runs `trunkvista-setup`) |
+| install it on Debian / Ubuntu | `trunkvista-latest.tar.gz` (the installer, the package below and its checksum: unpack it and run `sudo ./install.sh`; works without internet access) |
+| install it on Debian / Ubuntu in one command | `install.sh` (the same installer on its own: downloads, checks and installs the package below) |
 | install it on Debian / Ubuntu by hand | `trunkvista-latest.deb` (the same package as `trunkvista_<version>_all.deb`) |
 | run it on another system with Python 3.9+ | `trunkvista.py` (one file, standard library only) |
 | try it without a Zabbix | `trunkvista_demo.html` (open it in a browser) |
@@ -54,6 +57,7 @@ The *Code → Download ZIP* button and `git clone` give you the `main` branch as
 Addresses that always lead to the newest release (pre-releases are never "latest"):
 
 ```
+{REPO}/releases/latest/download/trunkvista-latest.tar.gz
 {REPO}/releases/latest/download/install.sh
 {REPO}/releases/latest/download/trunkvista-latest.deb
 {REPO}/releases/latest/download/trunkvista.py
@@ -137,19 +141,28 @@ Each release gets its own segment below, newest first - the same text GitHub sho
 - **Without the package:** `CHANNELVIEW_*` environment variables are still read (`TRUNKVISTA_*` wins), `~/.channelview` is renamed to `~/.trunkvista` the first time (when the new folder does not exist and no `--data-dir` is given), and the browser's remembered choices (colour theme, view options, the standalone demo's layouts) are moved to the new keys.
 - **A new logo** for the new name: a blue *trunk* that forks at a router node into four *links* in the usage colours, each ending in a node. It is in the page header, on the sign-in page (both follow the accent colour) and as the tab icon; `docs/logo` holds the logo set (SVG and PNG for dark and light backgrounds, one-colour versions, app icon, favicon, GitHub social preview) with the scripts that draw it, and `tools/embed_logo.py` puts it into the program. The screenshots in the README show it.
 
-**Easier installation.** From nothing to a dashboard that is running, in one command and three answers:
+**Easier installation.** From nothing to a dashboard that is running, in four lines and one answer - the administrator's password; the Zabbix server and its API token are entered in the web page only:
 
-- **`install.sh`** - `curl -fsSL https://github.com/<owner>/<repository>/releases/latest/download/install.sh | sudo sh`. It downloads the newest release, checks the package against the release's `SHA256SUMS` (a mismatch stops it), installs it with apt and starts the guided setup. A script without a terminal asks nothing. Every release carries it (and lists it in `SHA256SUMS`); `--version X.Y.Z` takes another release, `--no-setup` installs only.
-- **`trunkvista-setup`** - a new command (also called at the end of `install.sh`, and mentioned at the end of every installation) that finishes the job with up to three questions, each with its answer in `[brackets]`: **your Zabbix server** (address and API token; the connection is tried first and saved only if Zabbix accepts it, a self-signed certificate on the Zabbix side can be accepted on the spot), **who will open the dashboard** (this computer, or other PCs: the dashboard then listens on the network and **HTTPS is switched on** with a certificate it makes, the addresses to open are printed, and so is the command for an active `ufw` / `firewalld`; over SSH the default is the network) and **nightly updates**. It restarts the service and waits until it answers. Safe to run again; it edits only the lines of `/etc/default/trunkvista` it must and never replaces a certificate of your own. Options (`--zabbix-url`, `--token-stdin`, `--token-file`, `--network`, `--local`, `--auto-update`, `--yes`, ...) do the same without questions, for scripts.
+```
+wget https://github.com/<owner>/<repository>/releases/latest/download/trunkvista-latest.tar.gz
+tar xzf trunkvista-latest.tar.gz
+cd trunkvista
+sudo ./install.sh
+```
+
+- **`trunkvista-latest.tar.gz`** - a new file in every release (listed in `SHA256SUMS`): a folder `trunkvista/` with `install.sh`, the package and its checksum. It works on a machine without internet access (copy the archive there); `install.sh` checks the package against the checksum and installs it with apt. The archive is made by the new `packaging/build_bundle.sh`, the same way every time.
+- **`install.sh`** also stays a file of its own, for `curl -fsSL https://github.com/<owner>/<repository>/releases/latest/download/install.sh | sudo sh`: it downloads the newest release (never the branch), checks the package against the release's `SHA256SUMS` (a mismatch stops it) and installs it; `--version X.Y.Z` takes another release. Even piped from curl it asks its one question on your terminal.
+- **Only the administrator's password is asked** (by apt, as before; empty = a random one, kept for root). The administrator is called `admin` unless `trunkvista/admin_user` is preseeded - the name is no longer asked. Nothing is asked about Zabbix: an administrator who opens the page is taken to the Connections window by itself, where the address and the API token are entered and tried before they are saved.
+- **`trunkvista-setup`** - a new command for what the page cannot do, up to two questions with their answers in `[brackets]`: **who will open the dashboard** (this computer, or other PCs: the dashboard then listens on the network and **HTTPS is switched on** with a certificate it makes, the addresses to open are printed, and so is the command for an active `ufw` / `firewalld`; over SSH the default is the network) and **nightly updates**. It restarts the service and waits until it answers. Safe to run again; it edits only the lines of `/etc/default/trunkvista` it must and never replaces a certificate of your own. `--network`, `--local`, `--auto-update`, `--yes`, ... do the same without questions; for scripted installations `--zabbix-url` with `--token-stdin` / `--token-file` also saves a Zabbix connection (tried first).
 - **`trunkvista.py connection add | list | test`** - the Zabbix connections from the command line, also without the Debian package. The API token is read hidden (or from standard input / a file, never from the command line) and is tried before it is saved.
-- The README starts with a **quick start**, the install steps are in two flavours (one command / step by step), and a section describes running it **without the package** on any system with Python 3.9+.
+- The README starts with a **quick start**, the install steps are in three flavours (four lines / one command / step by step), and a section describes running it **without the package** on any system with Python 3.9+.
 
 **Upgrading from ChannelView (1.2.1 or older):** `channelview-update` cannot cross the rename (it looks for packages called `channelview`), so install the new package **once by hand**: download `trunkvista-latest.deb` from the latest release and run `sudo apt install ./trunkvista-latest.deb`. From then on `sudo trunkvista-update` works as before. Not moved by the installation: a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), scripts or monitoring that call the old command names, and a reverse proxy or firewall rule that names the old service. Past releases keep their old name in this file.
 
 **Sign-in.** TrunkVista now asks everybody to sign in, and the Debian installation creates the first account. **This changes how an existing installation behaves** - see *Upgrading* below.
 
 - **Accounts with two roles.** *Administrators* edit (tabs, devices, links), manage the Zabbix connections and the other accounts; *viewers* can only look and use *Refresh now*. Viewing needs an account too: without a session the server answers with the sign-in page and nothing else (no layout, no device names), and `401` to every API call.
-- **The installation asks for the first administrator** (user name and password, at least 10 characters) with a debconf question; an empty password - or an installation without a terminal, such as an unattended update - makes a random one. It is kept in `/var/lib/trunkvista/initial-admin-password` (root only), shown when installing from a terminal, and the account must choose its own password at the first sign-in (which deletes the file). The answers can be preseeded with `debconf-set-selections`; the password is not left in debconf's database.
+- **The installation asks for the first administrator's password** (at least 10 characters; the account is called `admin`) with a debconf question; an empty password - or an installation without a terminal, such as an unattended update - makes a random one. It is kept in `/var/lib/trunkvista/initial-admin-password` (root only), shown when installing from a terminal, and the account must choose its own password at the first sign-in (which deletes the file). The answers can be preseeded with `debconf-set-selections`; the password is not left in debconf's database.
 - **Automatic sign-out per account.** Administrators set it for each account (1 minute up to a year, or *never* for a wall display); defaults are 60 minutes for administrators and 8 hours for viewers. Only what a person does counts as activity, not the page refreshing itself. Sessions are kept by the server, so they survive a restart and an update - a wall display is signed in once.
 - **Account management** in the page (the button with your name: *Account*, *Users…*: add, role, automatic sign-out, disable, set a password, sign out everywhere, delete) and on the server: **`trunkvista-user`** (`list`, `add`, `passwd`, `set`, `delete`, `signout`; also `python3 trunkvista.py user ...` without the package). A running server sees the changes at once. The last enabled administrator cannot be removed, and nobody can demote, disable or delete their own account.
 - **Hardening.** Passwords are salted PBKDF2-HMAC-SHA256 (600 000 rounds); only a hash of each session key is stored; the cookie is `HttpOnly`, `SameSite=Strict` and `Secure` over HTTPS (or with `--secure-cookie` behind an HTTPS proxy); changes need a token that belongs to the session (the old shared edit token is gone); sign-in is rate-limited per address and per account, an unknown user costs as much time as a wrong password, and unknown name / wrong password / disabled account look the same. Sign-ins, failures and account changes are logged without any secret. Concurrent hashing is limited so a flood of sign-ins cannot starve the dashboard.
@@ -224,23 +237,28 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
 
-### The short way
+### The four lines
+
+```
+wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz
+tar xzf trunkvista-latest.tar.gz
+cd trunkvista
+sudo ./install.sh
+```
+
+What `install.sh` does, in this order: checks the package next to it against the checksum that came with it (and stops if they differ), then installs it with `apt-get`, which asks for **the administrator's password** - nothing else. Empty = a random one is made and kept in `/var/lib/trunkvista/initial-admin-password`; so is it without a terminal (a script, Ansible), where nothing is asked at all. The administrator is called `admin`; add people with [`trunkvista-user`](#accounts-and-sign-in) afterwards, or preseed another name (see there). The installation does not need the internet, apart from what apt fetches for the package's own dependencies (Python 3).
+
+The dashboard then runs on **this computer only** (`http://127.0.0.1:8088/`). Open it, sign in, and **enter your Zabbix server in the page**: its address (`https://zabbix.example.com`) and an API token (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**. Neither is asked by the installation, and neither is typed into a file. Reaching the dashboard from other PCs is one more command: [`sudo trunkvista-setup --network`](#trunkvista-setup-network-access-and-updates).
+
+`install.sh` is a short script: read it before you run it as root (`less install.sh`). The checksum in the archive catches a damaged or half-copied package; to be sure the archive itself is the release's, compare it with `SHA256SUMS` from the same release (`sha256sum -c --ignore-missing SHA256SUMS`, see [Download](#download)). While the repository is **private** `wget` cannot reach it without signing in: download with the GitHub tool as shown in [Download](#download), then continue at `tar xzf`.
+
+### One command, no archive
 
 ```
 curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh
 ```
 
-What it does, in this order: downloads `trunkvista-latest.deb` and `SHA256SUMS` from the **latest release** (never from the branch), checks the package against the checksums and stops if they differ, installs it with `apt-get` (which asks for the administrator's user name and password), and starts [`trunkvista-setup`](#trunkvista-setup-the-guided-finish). Without a terminal (a script, Ansible) it asks nothing: the administrator gets a random password, kept in `/var/lib/trunkvista/initial-admin-password`, and you run `sudo trunkvista-setup --help` for the options.
-
-It is a short script, so you can read it first - that is what to do before you run anything from the internet as root:
-
-```
-curl -fsSLO https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh
-less install.sh
-sudo sh install.sh                    # --no-setup: install only;  --version 1.3.0: a release other than the newest
-```
-
-The checksums come from the same release as the package, so they catch a damaged or half-finished download, not a tampered release; if you sign your releases ([Signing releases](#signing-releases-optional-recommended)) `trunkvista-update` verifies the signature for later updates. While the repository is **private** the address above cannot be reached without signing in: download with the GitHub tool as shown in [Download](#download) and use the step-by-step way below.
+The same script on its own: it downloads `trunkvista-latest.deb` and `SHA256SUMS` from the **latest release** (never from the branch), checks the package and installs it - then the same password question, the same page. `sudo sh install.sh --version 1.3.0` takes a release other than the newest (this way only: an unpacked archive installs the package it holds). Piped from `curl`, the script still asks its one question on your terminal.
 
 ### Step by step
 
@@ -253,22 +271,15 @@ The same, by hand - for a machine where you want to see each step, or a private 
    sudo apt install ./trunkvista-latest.deb
    ```
 
-   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the user name and password of the first administrator** (at least 10 characters). Leave the password empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
-3. Finish the setup:
+   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the password of the first administrator** (at least 10 characters). Leave it empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
+3. Open `http://127.0.0.1:8088` on that machine, **sign in**, and add your Zabbix in the window that opens (as above).
 
-   ```
-   sudo trunkvista-setup
-   ```
+### trunkvista-setup, network access and updates
 
-   (or open `http://127.0.0.1:8088` on that machine, **sign in**, and add your Zabbix in the window that opens: URL (`https://zabbix.example.com`) and an **API token** (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**. Reaching it from other PCs is [a few more lines](#making-it-reachable-from-other-pcs--wall-displays).)
-
-### trunkvista-setup, the guided finish
-
-`sudo trunkvista-setup` asks up to three questions and does the rest. Every question has its answer in `[brackets]`; Enter takes it, and **running it again is safe** - it changes only what you answer.
+After the installation the dashboard listens on this computer only and the nightly update check is off. `sudo trunkvista-setup` asks two questions about that and does the rest. Every question has its answer in `[brackets]`; Enter takes it, and **running it again is safe** - it changes only what you answer. (The Zabbix server is not among them: it is entered in the page.)
 
 | Question | What it does |
 |---|---|
-| **Zabbix address** and API token | Tries the connection (the same check as the *Test* button) and saves it as the connection in use only if Zabbix accepts it. The token is typed hidden and never shown. A self-signed certificate on the Zabbix side is offered as an exception; a typo can be corrected on the spot. Empty = skip, the page asks at the first sign-in. |
 | **Who will open the dashboard?** | *This computer only* (the default) or *other computers*: the dashboard then listens on all interfaces (`TRUNKVISTA_HOST=0.0.0.0`) and **HTTPS is switched on** - a self-signed certificate for this machine's names and addresses is made and entered into `/etc/default/trunkvista`. Logged in over SSH, the default is the second answer: that is a server. It also prints the addresses to open and, if `ufw` or `firewalld` is active, the one command that lets the port through. |
 | **Install new releases automatically?** | Switches the nightly `trunkvista-update.timer` on. Default no: it installs software unattended, so you decide. |
 
@@ -277,22 +288,24 @@ Afterwards it restarts the service, waits until it answers, and prints where to 
 Without questions - for a script or a fleet - give the answers as options; anything you do not mention stays as it is:
 
 ```
-echo "$ZABBIX_API_TOKEN" | sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-stdin --network --auto-update
-sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-file /root/zabbix.token --yes
+sudo trunkvista-setup --network --auto-update
+sudo trunkvista-setup --local --yes
 ```
 
 | Option | |
 |---|---|
-| `--zabbix-url URL` | the Zabbix server (`/api_jsonrpc.php` is added); tried first, saved only if it works - on failure nothing else is changed either |
-| `--token-file FILE`, `--token-stdin` | the API token: first line of the file / of standard input. Never an option on the command line, where other users could read it |
-| `--zabbix-user NAME` | log in with this user and a password (the file / standard input holds the password) instead of a token |
-| `--zabbix-name TEXT`, `--no-verify-tls` | the name shown in the page; accept a self-signed HTTPS certificate on the Zabbix side |
 | `--network`, `--local` | other PCs may open it (listens everywhere, HTTPS on) / this computer only. `--network` needs an account to exist |
 | `--no-https` | with `--network`: no HTTPS, because a reverse proxy in front does it ([see below](#https-do-this-as-soon-as-other-pcs-open-it)) |
 | `--auto-update`, `--no-auto-update` | the nightly update check on / off |
 | `--yes`, `--no-restart` | never ask / do not restart the service |
 
-The Zabbix part is also available on its own, which is the way for a run without the package and for a script that has no sudo: `python3 trunkvista.py connection add https://zabbix.example.com` (`list` and `test` show and try what is saved; a running dashboard reads the connections when it starts).
+**Zabbix from a script.** A fleet that must come up connected can give the connection as options as well (it is tried first and saved only if Zabbix accepts it; on failure nothing else is changed either): `--zabbix-url URL` (`/api_jsonrpc.php` is added), the API token from `--token-file FILE` or `--token-stdin` (never an option on the command line, where other users could read it), `--zabbix-user NAME` (log in with this user and a password in the file / standard input instead of a token), `--zabbix-name TEXT` and `--no-verify-tls` (accept a self-signed HTTPS certificate on the Zabbix side):
+
+```
+echo "$ZABBIX_API_TOKEN" | sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-stdin --yes
+```
+
+The same is available on its own, which is the way for a run without the package and for a script that has no sudo: `python3 trunkvista.py connection add https://zabbix.example.com` (`list` and `test` show and try what is saved; a running dashboard reads the connections when it starts).
 
 ### Without the package (any system with Python 3.9+)
 
@@ -323,7 +336,7 @@ journalctl -u trunkvista -f
 | **admin** | everything: edit tabs, devices and links, the Zabbix connections, and the accounts of the others |
 | **viewer** | look: tabs, playlists, kiosk mode, heatmap, graphs, and *Refresh now*. Nothing else - not even the list of Zabbix connections |
 
-**At the installation** `apt install` asks for the administrator's user name (default `admin`) and password. If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/trunkvista/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
+**At the installation** `apt install` asks for the administrator's password (the account is called `admin`; preseed `trunkvista/admin_user`, below, to choose another name - or add a second administrator with `trunkvista-user add NAME --role admin` and delete `admin`). If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/trunkvista/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
 
 To answer the questions in advance (an automated installation):
 
@@ -369,7 +382,7 @@ A running server sees these changes at once. **Locked out?** Every administrator
 
 ### Making it reachable from other PCs / wall displays
 
-The easy way: **`sudo trunkvista-setup --network`** (or answer *other computers* when `trunkvista-setup` asks). It does what is described here and in the next section: listens on all interfaces, makes a certificate, switches HTTPS on, restarts, and prints the addresses. Take `--local` to go back.
+The easy way: **`sudo trunkvista-setup --network`** (or answer *other computers* when `sudo trunkvista-setup` asks). It does what is described here and in the next section: listens on all interfaces, makes a certificate, switches HTTPS on, restarts, and prints the addresses. Take `--local` to go back.
 
 By hand: by default it listens on `127.0.0.1` only. Edit `/etc/default/trunkvista`:
 
@@ -572,7 +585,7 @@ It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the releas
 | What | Where |
 |---|---|
 | Program | `/usr/lib/trunkvista/trunkvista.py` (command `trunkvista`) |
-| Guided setup, updater, certificate helper, account manager | `/usr/bin/trunkvista-setup`, `/usr/bin/trunkvista-update`, `/usr/bin/trunkvista-cert`, `/usr/bin/trunkvista-user` |
+| Network / update setup, updater, certificate helper, account manager | `/usr/bin/trunkvista-setup`, `/usr/bin/trunkvista-update`, `/usr/bin/trunkvista-cert`, `/usr/bin/trunkvista-user` |
 | Service, update service and timer | `/lib/systemd/system/trunkvista*.service`, `trunkvista-update.timer` |
 | Settings (listen address, port, HTTPS files, update repository / channel) | `/etc/default/trunkvista` – kept on upgrades; `trunkvista-setup` edits it for you |
 | Data: connections (Zabbix API token, owner-only), layouts, accounts (password hashes, owner-only), sessions | `/var/lib/trunkvista/` (`connections.json`, `dashboard*.json`, `users.json`, `sessions.json`) |
@@ -599,9 +612,10 @@ The service runs as its own user `trunkvista`, sandboxed by systemd (no access t
 | Signed out again and again | the account's automatic sign-out is too short for the use: `sudo trunkvista-user set NAME --idle never` (wall display) or a longer time |
 | Page says "No account exists yet" | the installation could not make one: `sudo trunkvista-user add NAME --role admin` |
 | "This needs an administrator account" | you are signed in as a viewer |
-| Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** - or `sudo trunkvista-setup`, which tests before it saves |
+| Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** (the page opens it by itself for an administrator while nothing is connected) |
 | `trunkvista-setup`: "does not answer on port ..." | the service did not start with the new settings: `journalctl -u trunkvista -n 30` (a bad certificate path, a port that is taken); undo with `sudo trunkvista-setup --local` |
-| `install.sh`: "could not download" | no internet access from this machine (a proxy?), or a private repository: download with `gh` (see [Download](#download)) and use *Step by step* |
+| `wget` / `install.sh`: "could not download", 404 | no internet access from this machine (a proxy?), or a private repository: download with `gh` (see [Download](#download)); with no access to GitHub at all, fetch `trunkvista-latest.tar.gz` elsewhere and copy it over |
+| `install.sh`: "more than one package next to install.sh" | the folder holds two `trunkvista_*_all.deb`; keep the one you want installed |
 | Updater: "no stable release" | the repository has no non-pre-release release yet, or `TRUNKVISTA_UPDATE_REPO` is wrong; private repository → token file |
 | Updater: "releases must be signed" | `/etc/trunkvista/release-key.gpg` exists but the release is not signed – sign it, or remove the key file |
 | Updater: "API rate limit is used up" | GitHub allows 60 unauthenticated API calls per hour per address; use a token file |

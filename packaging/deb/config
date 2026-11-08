@@ -1,5 +1,6 @@
 #!/bin/sh
-# Asks for the first account (user name and password) - only when the installation is interactive and there is no account yet.
+# Asks for the first administrator's password - only when the installation is interactive and there is no account yet. The user name
+# (default "admin") is a low-priority question, so it is not asked unless debconf runs at priority low (dpkg-reconfigure -plow) or it is preseeded.
 # A noninteractive installation (apt-get with DEBIAN_FRONTEND=noninteractive, trunkvista-update) asks nothing: the postinst makes the
 # account from preseeded answers (debconf-set-selections) or, without them, with a random password.
 set -e
@@ -13,7 +14,7 @@ for d in "$DATA" /var/lib/channelview; do        # (the second: an installation 
     fi
 done
 
-db_input high trunkvista/admin_user || true
+db_input low trunkvista/admin_user || true
 db_go || true
 tries=0
 while [ "$tries" -lt 5 ]; do

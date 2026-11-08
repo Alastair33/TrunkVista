@@ -22,7 +22,7 @@ jobs:
       - name: Shell scripts (shellcheck)
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
-          shellcheck packaging/build_deb.sh packaging/release.sh tests/e2e_debian.sh
+          shellcheck packaging/build_deb.sh packaging/build_bundle.sh packaging/release.sh tests/e2e_debian.sh
           shellcheck -s sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/trunkvista-cert packaging/trunkvista-setup packaging/install.sh
 
       - name: Python and page-script checks (pyflakes rules, JavaScript syntax)

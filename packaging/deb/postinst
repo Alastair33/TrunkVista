@@ -147,17 +147,14 @@ fi
 if [ "$1" = "configure" ] && [ -n "$created_note" ]; then
     printf '\ntrunkvista: %s\n' "$created_note"
 fi
-if [ "$1" = "configure" ] && [ -z "$2" ] && [ -z "${TRUNKVISTA_INSTALLER:-}" ]; then      # (install.sh sets it: it starts trunkvista-setup itself)
+if [ "$1" = "configure" ] && [ -z "$2" ]; then
     cat <<MSG
 
-trunkvista is installed and running (this machine only: http://127.0.0.1:8088/). Everybody signs in.
-  Finish the setup - your Zabbix server, and whether other PCs may open the dashboard (HTTPS is switched on for that):
-
-      sudo trunkvista-setup
-
-  (or open the page, sign in as the administrator and add Zabbix there.)
+trunkvista is installed and running on http://127.0.0.1:8088/ (this machine only). Everybody signs in.
+  1. Open that page and sign in as the administrator.
+  2. The page asks for your Zabbix server (its address and an API token) - that is all there is to set up.
+  * Other PCs / wall displays may open it too:  sudo trunkvista-setup --network      (also switches HTTPS on)
   * Accounts:  the account menu in the page (administrators), or  sudo trunkvista-user --help
-    Wall displays: an account with --idle never (a viewer that is never signed out).
   * Updates from GitHub:  sudo trunkvista-update      Logs:  journalctl -u trunkvista
 MSG
 fi
