@@ -110,6 +110,29 @@ Hover a tile for the device's details, click it (or press Enter) to open them. A
 Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/TrunkVista/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
 
 <!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
+### What's new in 1.3.0
+
+*2026-11-08*
+
+**New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. The mark is unchanged; the wordmark reads *Trunk* + *Vista*. Everything that carried the name changed with it:
+
+- **Package and files:** `trunkvista` (`trunkvista_<version>_all.deb`, `trunkvista-latest.deb`), `trunkvista.py`, `trunkvista_demo.html`; commands `trunkvista-user`, `trunkvista-update`, `trunkvista-cert`; service `trunkvista` and `trunkvista-update.timer`; folders `/var/lib/trunkvista`, `/etc/trunkvista`, `/etc/default/trunkvista`, `~/.trunkvista`; settings `TRUNKVISTA_*`; the session cookie is `tv_session`.
+- **The Debian package of the new name replaces the old one** (`Conflicts` / `Replaces: channelview`). When it is installed over a ChannelView installation, it moves the data (layouts, the saved Zabbix connections, accounts, `custom.css`), the HTTPS certificate and key, the update signing key and the settings in `/etc/default` (renamed to `TRUNKVISTA_*`) to the new places, keeps the nightly update check on if it was on, removes the old service user and says what it did. Everybody signs in again once (the cookie has a new name). Afterwards `sudo apt purge channelview` removes the leftover package record; it does not touch the moved data.
+- **Without the package:** `CHANNELVIEW_*` environment variables are still read (`TRUNKVISTA_*` wins), `~/.channelview` is renamed to `~/.trunkvista` the first time (when the new folder does not exist and no `--data-dir` is given), and the browser's remembered choices (colour theme, view options, the standalone demo's layouts) are moved to the new keys.
+
+**Upgrading from ChannelView (1.2.1 or older):** `channelview-update` cannot cross the rename (it looks for packages called `channelview`), so install the new package **once by hand**: download `trunkvista-latest.deb` from the latest release and run `sudo apt install ./trunkvista-latest.deb`. From then on `sudo trunkvista-update` works as before. Not moved by the installation: a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), scripts or monitoring that call the old command names, and a reverse proxy or firewall rule that names the old service. Past releases keep their old name in this file.
+
+**Sign-in.** TrunkVista now asks everybody to sign in, and the Debian installation creates the first account. **This changes how an existing installation behaves** - see *Upgrading* below.
+
+- **Accounts with two roles.** *Administrators* edit (tabs, devices, links), manage the Zabbix connections and the other accounts; *viewers* can only look and use *Refresh now*. Viewing needs an account too: without a session the server answers with the sign-in page and nothing else (no layout, no device names), and `401` to every API call.
+- **The installation asks for the first administrator** (user name and password, at least 10 characters) with a debconf question; an empty password - or an installation without a terminal, such as an unattended update - makes a random one. It is kept in `/var/lib/trunkvista/initial-admin-password` (root only), shown when installing from a terminal, and the account must choose its own password at the first sign-in (which deletes the file). The answers can be preseeded with `debconf-set-selections`; the password is not left in debconf's database.
+- **Automatic sign-out per account.** Administrators set it for each account (1 minute up to a year, or *never* for a wall display); defaults are 60 minutes for administrators and 8 hours for viewers. Only what a person does counts as activity, not the page refreshing itself. Sessions are kept by the server, so they survive a restart and an update - a wall display is signed in once.
+- **Account management** in the page (the button with your name: *Account*, *Users…*: add, role, automatic sign-out, disable, set a password, sign out everywhere, delete) and on the server: **`trunkvista-user`** (`list`, `add`, `passwd`, `set`, `delete`, `signout`; also `python3 trunkvista.py user ...` without the package). A running server sees the changes at once. The last enabled administrator cannot be removed, and nobody can demote, disable or delete their own account.
+- **Hardening.** Passwords are salted PBKDF2-HMAC-SHA256 (600 000 rounds); only a hash of each session key is stored; the cookie is `HttpOnly`, `SameSite=Strict` and `Secure` over HTTPS (or with `--secure-cookie` behind an HTTPS proxy); changes need a token that belongs to the session (the old shared edit token is gone); sign-in is rate-limited per address and per account, an unknown user costs as much time as a wrong password, and unknown name / wrong password / disabled account look the same. Sign-ins, failures and account changes are logged without any secret. Concurrent hashing is limited so a flood of sign-ins cannot starve the dashboard.
+- **Safer defaults.** The service starts with `--require-login`: with no account at all nobody can get in (instead of everybody). The program refuses to listen on other addresses than the local computer while no account exists (`--no-login` keeps the old behaviour, not recommended). `custom.css` also applies to the sign-in page.
+
+**Upgrading from 1.2.x:** the upgrade creates the administrator (it asks; see above), removes the old `edit_token` and requires a sign-in from then on. If `trunkvista-update` runs the upgrade unattended, read `/var/lib/trunkvista/initial-admin-password` afterwards (or `sudo trunkvista-user passwd admin`). A reverse proxy in front of the dashboard needs `--secure-cookie` in `TRUNKVISTA_ARGS`; see the README.
+
 ### What's new in 1.2.1
 
 *2026-11-05*
@@ -171,17 +194,6 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 - The README screenshots were retaken (they still showed the old diamond logo) and two light-mode screenshots were added.
 - CI also runs ruff (pyflakes rules), a JavaScript syntax check of both page scripts, and a test that keeps the dark and light palettes
   defining the same variables.
-
-### What's new in 1.1.1
-
-*2026-11-05*
-
-- **New logo.** A C made of four link segments in the usage colours (green, lime, amber, orange) around a blue node. It is now in the page
-  header, replacing the plain diamond, and is the browser tab icon (a drawing tuned to stay readable at 16 px). The header mark's centre node
-  follows `--accent`, so a `custom.css` accent colour restyles it.
-- The logo files are in the repository under `docs/logo`: SVG and PNG logos for dark and light backgrounds, one-colour marks, app icon,
-  favicon, a 1280 x 640 social preview image, the colour and usage rules, and the script that draws them.
-- The README now opens with the logo and shows screenshots of the interface (demo data) in `docs/screenshots`.
 <!-- whats-new:end -->
 
 ## Install on Debian / Ubuntu

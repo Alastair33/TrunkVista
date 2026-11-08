@@ -86,7 +86,7 @@ def default_data_dir():
     return str(new)
 
 
-VERSION = "1.2.1"        # the one place the version lives: packaging/build_deb.sh and the release workflow read it from here
+VERSION = "1.3.0"        # the one place the version lives: packaging/build_deb.sh and the release workflow read it from here
 DEFAULT_PORT = 8088
 TOKEN_RX = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
 MAX_BODY = 2_000_000

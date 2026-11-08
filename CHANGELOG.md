@@ -4,6 +4,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-11-08
+
 **New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. The mark is unchanged; the wordmark reads *Trunk* + *Vista*. Everything that carried the name changed with it:
 
 - **Package and files:** `trunkvista` (`trunkvista_<version>_all.deb`, `trunkvista-latest.deb`), `trunkvista.py`, `trunkvista_demo.html`; commands `trunkvista-user`, `trunkvista-update`, `trunkvista-cert`; service `trunkvista` and `trunkvista-update.timer`; folders `/var/lib/trunkvista`, `/etc/trunkvista`, `/etc/default/trunkvista`, `~/.trunkvista`; settings `TRUNKVISTA_*`; the session cookie is `tv_session`.
