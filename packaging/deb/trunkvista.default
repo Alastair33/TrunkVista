@@ -1,0 +1,27 @@
+# /etc/default/trunkvista - read by trunkvista.service and by trunkvista-update.
+# After a change:   sudo systemctl restart trunkvista
+
+# Where the dashboard listens.
+#   127.0.0.1   only this machine (default, the safe choice)
+#   0.0.0.0     all network interfaces: other PCs and wall displays on the LAN can open it.
+#               Everybody has to sign in (accounts: sudo trunkvista-user --help, or the account menu in the page).
+#               Do switch on HTTPS (below) first: without it passwords cross the network readable.
+TRUNKVISTA_HOST=127.0.0.1
+TRUNKVISTA_PORT=8088
+
+# HTTPS - recommended as soon as the dashboard is opened from other PCs (the passwords then travel encrypted):
+#   sudo trunkvista-cert          makes a self-signed certificate in /etc/trunkvista/tls (or use your own / Let's Encrypt files)
+# then remove the two # below and restart. The certificate files are re-read when they change, so a renewal needs no restart.
+# The files must be readable by the group trunkvista (the key: chmod 640, chgrp trunkvista).
+#TRUNKVISTA_TLS_CERT=/etc/trunkvista/tls/server.crt
+#TRUNKVISTA_TLS_KEY=/etc/trunkvista/tls/server.key
+
+# More options for trunkvista.py (trunkvista --help), e.g.  --config /var/lib/trunkvista/other.json
+TRUNKVISTA_ARGS=
+
+# Updates from GitHub releases:  sudo trunkvista-update
+TRUNKVISTA_UPDATE_REPO=@REPO@
+# stable = full releases only, prerelease = release candidates too
+TRUNKVISTA_UPDATE_CHANNEL=stable
+# Only for a private repository: a file (chmod 600) holding a GitHub token that may read the repository's releases.
+TRUNKVISTA_UPDATE_TOKEN_FILE=

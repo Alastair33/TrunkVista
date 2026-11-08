@@ -33,16 +33,16 @@ class ReleaseScript(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.repo, self.remote = self.tmp / "repo", self.tmp / "remote.git"
-        for rel in ("channelview.py", "tools/build_demo.py", "tools/demo_shim.js", "packaging/release.sh", "packaging/whats_new.py", ".gitignore"):
+        for rel in ("trunkvista.py", "tools/build_demo.py", "tools/demo_shim.js", "packaging/release.sh", "packaging/whats_new.py", ".gitignore"):
             (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy(ROOT / rel, self.repo / rel)
         (self.repo / "tests").mkdir()
         (self.repo / "tests" / "test_fine.py").write_text("import unittest\nclass T(unittest.TestCase):\n    def test_ok(self):\n        pass\n")
-        text = (self.repo / "channelview.py").read_text()
-        (self.repo / "channelview.py").write_text(re.sub(r'^VERSION = "[^"]*"', 'VERSION = "1.0.0"', text, count=1, flags=re.M))
+        text = (self.repo / "trunkvista.py").read_text()
+        (self.repo / "trunkvista.py").write_text(re.sub(r'^VERSION = "[^"]*"', 'VERSION = "1.0.0"', text, count=1, flags=re.M))
         (self.repo / "CHANGELOG.md").write_text(CHANGELOG)
         self.git("init", "-q", "-b", "main")
-        subprocess.run(["python3", "tools/build_demo.py", "channelview_demo.html"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["python3", "tools/build_demo.py", "trunkvista_demo.html"], cwd=self.repo, check=True, capture_output=True)
         self.git("add", "-A")
         self.git("commit", "-q", "-m", "start")
         subprocess.run(["git", "init", "-q", "--bare", str(self.remote)], check=True, env=ENV)
@@ -56,7 +56,7 @@ class ReleaseScript(unittest.TestCase):
         return r.returncode, r.stdout + r.stderr
 
     def version(self):
-        return re.search(r'^VERSION = "([^"]*)"', (self.repo / "channelview.py").read_text(), re.M).group(1)
+        return re.search(r'^VERSION = "([^"]*)"', (self.repo / "trunkvista.py").read_text(), re.M).group(1)
 
     def changelog(self):
         return (self.repo / "CHANGELOG.md").read_text()
@@ -93,7 +93,7 @@ class ReleaseScript(unittest.TestCase):
         self.assertIn("git push origin main v1.0.1", out)
         fresh = self.tmp / "fresh_demo.html"
         subprocess.run(["python3", "tools/build_demo.py", str(fresh)], cwd=self.repo, check=True, capture_output=True)
-        self.assertEqual((self.repo / "channelview_demo.html").read_bytes(), fresh.read_bytes(), "the demo page was rebuilt for the new version")
+        self.assertEqual((self.repo / "trunkvista_demo.html").read_bytes(), fresh.read_bytes(), "the demo page was rebuilt for the new version")
 
     def test_minor_and_major(self):
         self.assertEqual(self.release("minor")[0], 0)

@@ -1,4 +1,4 @@
-"""ChannelView logo generator: python3 build_logo.py OUTDIR  -> SVG files (the wordmark is outlined: no font needed to display them)."""
+"""TrunkVista logo generator: python3 build_logo.py OUTDIR  -> SVG files (the wordmark is outlined: no font needed to display them)."""
 import math, sys, os
 import uharfbuzz as hb
 from fontTools.ttLib import TTFont
@@ -33,7 +33,7 @@ def mark(colors=SCALE, centre=ACCENT, ids=""):
     return "".join(out)
 MARK_BOX = (CX - R_OUT, CY - R_OUT, 2 * R_OUT, 2 * R_OUT)   # square around the ring
 
-def svg(w, h, body, vb=None, title="ChannelView"):
+def svg(w, h, body, vb=None, title="TrunkVista"):
     vb = vb or f"0 0 {w} {h}"
     return f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="{vb}" width="{w}" height="{h}" role="img" aria-label="{title}"><title>{title}</title>{body}</svg>\n'
 def put(name, text): open(os.path.join(OUT, name), "w").write(text); print("wrote", name, len(text) // 1024 or 1, "KB")
@@ -41,10 +41,10 @@ def put(name, text): open(os.path.join(OUT, name), "w").write(text); print("wrot
 # ------------------------------------------------------------------ app icon tile
 TILE = (f'<defs><linearGradient id="t" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#151e2a"/><stop offset="1" stop-color="{BG}"/></linearGradient></defs>'
         f'<rect width="512" height="512" rx="112" fill="url(#t)"/><rect x="3" y="3" width="506" height="506" rx="109" fill="none" stroke="{LINE}" stroke-width="6"/>')
-put("channelview-icon.svg", svg(512, 512, TILE + mark()))
-put("channelview-mark.svg", svg(512, 512, mark(), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
-put("channelview-mark-mono-dark.svg", svg(512, 512, mark(["#0b0f14"] * 4, "#0b0f14"), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
-put("channelview-mark-mono-light.svg", svg(512, 512, mark(["#ffffff"] * 4, "#ffffff"), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
+put("trunkvista-icon.svg", svg(512, 512, TILE + mark()))
+put("trunkvista-mark.svg", svg(512, 512, mark(), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
+put("trunkvista-mark-mono-dark.svg", svg(512, 512, mark(["#0b0f14"] * 4, "#0b0f14"), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
+put("trunkvista-mark-mono-light.svg", svg(512, 512, mark(["#ffffff"] * 4, "#ffffff"), vb="%.0f %.0f %.0f %.0f" % (MARK_BOX[0] - 12, MARK_BOX[1] - 12, MARK_BOX[2] + 24, MARK_BOX[3] + 24)))
 
 # ------------------------------------------------------------------ wordmark, outlined with HarfBuzz shaping (kerning) + fontTools outlines
 def text_path(text, font_file, size, x0, baseline, tracking=0.0):
@@ -62,13 +62,13 @@ def lockup(fg, view_fg, mark_body, height=160):
     s = mark_h / (MARK_BOX[2] + 24); gx = 0
     mark_g = f'<g transform="translate({-(MARK_BOX[0] - 12) * s:.2f},{(height - mark_h) / 2 - (MARK_BOX[1] - 12) * s:.2f}) scale({s:.4f})">{mark_body}</g>'
     x0 = mark_h + 34
-    p1, x1 = text_path("Channel", "Inter-Bold.otf", size, x0, base_y + 14, -0.012)
-    p2, x2 = text_path("View", "Inter-Light.otf", size, x1, base_y + 14, -0.012)
+    p1, x1 = text_path("Trunk", "Inter-Bold.otf", size, x0, base_y + 14, -0.012)
+    p2, x2 = text_path("Vista", "Inter-Light.otf", size, x1, base_y + 14, -0.012)
     w = int(math.ceil(x2 + 6))
     body = mark_g + f'<path d="{p1}" fill="{fg}"/><path d="{p2}" fill="{view_fg}"/>'
     return w, height, body
-w, h, body = lockup(TEXT, TEXT, mark()); put("channelview-logo-dark.svg", svg(w, h, body))        # for dark backgrounds
-w, h, body = lockup(BG, "#3a4656", mark(SCALE, "#1f7ae0")); put("channelview-logo-light.svg", svg(w, h, body))   # for light backgrounds
+w, h, body = lockup(TEXT, TEXT, mark()); put("trunkvista-logo-dark.svg", svg(w, h, body))        # for dark backgrounds
+w, h, body = lockup(BG, "#3a4656", mark(SCALE, "#1f7ae0")); put("trunkvista-logo-light.svg", svg(w, h, body))   # for light backgrounds
 
 # ------------------------------------------------------------------ favicon: the same mark, slightly heavier and with a wider opening, no hairline border (reads better at 16-48 px)
 R_MID, SW, GAP, HALF_OPEN = 148, 76, 13, 44; R_IN, R_OUT = R_MID - SW / 2, R_MID + SW / 2

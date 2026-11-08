@@ -426,7 +426,7 @@ class Browser:
     def req(self, method, path, body=None, ctype="application/json", token=True, headers=None):
         h = dict(headers or {})
         if self.cookie:
-            h["Cookie"] = "cv_session=" + self.cookie
+            h["Cookie"] = "tv_session=" + self.cookie
         if token and self.csrf:
             h.setdefault("X-Edit-Token", self.csrf)
         data = None
@@ -440,7 +440,7 @@ class Browser:
             raw = r.read()
             self.last = r
             for k, v in r.getheaders():
-                if k.lower() == "set-cookie" and v.startswith("cv_session="):
+                if k.lower() == "set-cookie" and v.startswith("tv_session="):
                     self.cookie = v.split(";", 1)[0].split("=", 1)[1]
             return r.status, raw
         finally:
@@ -519,7 +519,7 @@ class Endpoints(unittest.TestCase):
         self.assertIn("HttpOnly", c)
         self.assertIn("SameSite=Strict", c)
         self.assertNotIn("Secure", c, "plain http, no proxy flag")
-        self.assertRegex(c, r"^cv_session=[A-Za-z0-9_-]{43};")
+        self.assertRegex(c, r"^tv_session=[A-Za-z0-9_-]{43};")
         self.assertNotIn(b2.cookie, (self.dir / "sessions.json").read_text(), "the key itself is not on the disk")
         log = s.text()
         self.assertIn("[accounts] sign-in user=root", log)
@@ -687,7 +687,7 @@ class Endpoints(unittest.TestCase):
         st, html = b.page()
         self.assertEqual(st, 200)
         self.assertIn("No account exists yet", html)
-        self.assertIn("channelview-user add", html)
+        self.assertIn("trunkvista-user add", html)
         self.assertEqual(b.api("GET", "/api/layout", token=False)[0], 401)
         self.assertEqual(b.login("root", "admin password 1")[0], 401)
         # the first account is made while the server runs (what the installer and the `user` command do): sign-in works at once
@@ -724,7 +724,7 @@ class Endpoints(unittest.TestCase):
             p = subprocess.run([sys.executable, str(APP), "--no-browser", "--demo", "--host", "0.0.0.0", "--port", str(free_port()), "--data-dir", tmp + "/d"],
                                capture_output=True, text=True, timeout=30)
             self.assertNotEqual(p.returncode, 0)
-            self.assertIn("channelview.py user add", p.stdout + p.stderr)
+            self.assertIn("trunkvista.py user add", p.stdout + p.stderr)
             self.assertIn("--no-login", p.stdout + p.stderr)
         with tempfile.TemporaryDirectory() as tmp:               # with an account the same address is fine
             seed(Path(tmp) / "d", ADMIN)
@@ -733,7 +733,7 @@ class Endpoints(unittest.TestCase):
 
 
 class UserCommand(unittest.TestCase):
-    """channelview.py user ...  - also against a running server."""
+    """trunkvista.py user ...  - also against a running server."""
 
     def run_cli(self, data, *args, stdin=""):
         return subprocess.run([sys.executable, str(APP), "user", "--data-dir", str(data), *args], input=stdin, capture_output=True, text=True, timeout=60)

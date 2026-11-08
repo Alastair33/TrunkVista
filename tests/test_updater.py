@@ -1,4 +1,4 @@
-"""channelview-update against a mock GitHub (tests/mock_github.py): version order, channels, checksums, signatures, package check, private
+"""trunkvista-update against a mock GitHub (tests/mock_github.py): version order, channels, checksums, signatures, package check, private
 repositories and redirects.  Nothing is installed: the install step and the root check are replaced.
 Run:  python3 -m unittest discover -s tests -v"""
 import contextlib
@@ -19,16 +19,16 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from mock_github import MockGitHub  # noqa: E402
 
-_loader = importlib.machinery.SourceFileLoader("zbx_update", str(HERE.parent / "packaging" / "channelview-update"))
+_loader = importlib.machinery.SourceFileLoader("zbx_update", str(HERE.parent / "packaging" / "trunkvista-update"))
 upd = importlib.util.module_from_spec(importlib.util.spec_from_loader("zbx_update", _loader))
 _loader.exec_module(upd)
 
 HAVE_DPKG = shutil.which("dpkg-deb") is not None
 HAVE_GPG = shutil.which("gpg") is not None and shutil.which("gpgv") is not None
-ENV_KEYS = ("CHANNELVIEW_UPDATE_REPO", "CHANNELVIEW_UPDATE_CHANNEL", "CHANNELVIEW_UPDATE_TOKEN_FILE")
+ENV_KEYS = ("TRUNKVISTA_UPDATE_REPO", "TRUNKVISTA_UPDATE_CHANNEL", "TRUNKVISTA_UPDATE_TOKEN_FILE")
 
 
-def make_deb(tmp, version, package="channelview", arch="all"):
+def make_deb(tmp, version, package="trunkvista", arch="all"):
     """A real (empty) .deb with the given control fields."""
     root = Path(tempfile.mkdtemp(dir=tmp))
     (root / "DEBIAN").mkdir()
@@ -66,8 +66,8 @@ class Base(unittest.TestCase):
         self.installed = upd.asset_version({"name": Path(path).name})
 
     def release(self, version, tag=None, deb=None, sums=True, **kw):
-        """version is the Debian version (2.0.0~rc.1); the release file is named like build_deb.sh names it (channelview_2.0.0-rc.1_all.deb)."""
-        name = f"channelview_{version.replace('~', '-')}_all.deb"
+        """version is the Debian version (2.0.0~rc.1); the release file is named like build_deb.sh names it (trunkvista_2.0.0-rc.1_all.deb)."""
+        name = f"trunkvista_{version.replace('~', '-')}_all.deb"
         data = deb if deb is not None else (make_deb(self.tmp, version) if HAVE_DPKG else b"not a real deb")
         assets = {name: data}
         if sums:
@@ -108,24 +108,24 @@ class VersionOrder(unittest.TestCase):
 
 class Settings(Base):
     def test_defaults_file_parsing_and_placeholder_repo(self):
-        Path(self.tmp, "d").write_text("# c\nCHANNELVIEW_UPDATE_REPO='me/app'\n\nCHANNELVIEW_UPDATE_CHANNEL=prerelease\nBROKEN\nCHANNELVIEW_ARGS=\n")
+        Path(self.tmp, "d").write_text("# c\nTRUNKVISTA_UPDATE_REPO='me/app'\n\nTRUNKVISTA_UPDATE_CHANNEL=prerelease\nBROKEN\nTRUNKVISTA_ARGS=\n")
         d = upd.read_defaults(self.tmp + "/d")
-        self.assertEqual((d["CHANNELVIEW_UPDATE_REPO"], d["CHANNELVIEW_UPDATE_CHANNEL"], d["CHANNELVIEW_ARGS"]), ("me/app", "prerelease", ""))
+        self.assertEqual((d["TRUNKVISTA_UPDATE_REPO"], d["TRUNKVISTA_UPDATE_CHANNEL"], d["TRUNKVISTA_ARGS"]), ("me/app", "prerelease", ""))
         self.assertEqual(upd.read_defaults(self.tmp + "/nope"), {})
         err = io.StringIO()
         with contextlib.redirect_stderr(err):
             rc = upd.main(["--defaults-file", self.tmp + "/dd", "--api-url", self.base])
         self.assertEqual(rc, 1)
         self.assertIn("no GitHub repository is set", err.getvalue())
-        Path(self.tmp, "dd").write_text("CHANNELVIEW_UPDATE_REPO=OWNER/REPO\n")
+        Path(self.tmp, "dd").write_text("TRUNKVISTA_UPDATE_REPO=OWNER/REPO\n")
         with contextlib.redirect_stderr(err):
             self.assertEqual(upd.main(["--defaults-file", self.tmp + "/dd", "--api-url", self.base]), 1)
-        self.assertIn("CHANNELVIEW_UPDATE_REPO", err.getvalue())
+        self.assertIn("TRUNKVISTA_UPDATE_REPO", err.getvalue())
 
     def test_repo_comes_from_the_defaults_file(self):
         self.release("1.0.0")
         out = io.StringIO()
-        Path(self.tmp, "dd").write_text("CHANNELVIEW_UPDATE_REPO=owner/name\n")
+        Path(self.tmp, "dd").write_text("TRUNKVISTA_UPDATE_REPO=owner/name\n")
         with contextlib.redirect_stdout(out):
             rc = upd.main(["--check", "--api-url", self.base, "--defaults-file", self.tmp + "/dd"])
         self.assertEqual(rc, 0)
@@ -170,14 +170,14 @@ class Checking(Base):
         self.release("2.0.0")
         rc, out, _ = self.go("--check", "--channel", "prerelease")
         self.assertIn("1.0.0 -> 2.0.0\n", out)
-        rc, out, _ = self.go("--check", defaults="CHANNELVIEW_UPDATE_CHANNEL=prerelease\n")
+        rc, out, _ = self.go("--check", defaults="TRUNKVISTA_UPDATE_CHANNEL=prerelease\n")
         self.assertEqual(rc, 10, "the channel can come from the defaults file")
 
     def test_prerelease_files_have_names_that_survive_github(self):
         """GitHub turns a ~ in an asset name into a . - so the file is called ..._2.0.0-rc.1_... while the package says 2.0.0~rc.1."""
         name, _ = self.release("2.0.0~rc.1", prerelease=True)
         self.assertNotIn("~", name)
-        self.assertEqual(self.gh.github_name("channelview_2.0.0~rc.1_all.deb"), "channelview_2.0.0.rc.1_all.deb")
+        self.assertEqual(self.gh.github_name("trunkvista_2.0.0~rc.1_all.deb"), "trunkvista_2.0.0.rc.1_all.deb")
         self.assertEqual(upd.asset_version({"name": name}), "2.0.0~rc.1")
         rc, out, err = self.go("--yes", "--channel", "prerelease")
         self.assertEqual(rc, 0, out + err)
@@ -247,7 +247,7 @@ class Installing(Base):
         self.assertEqual(oct(cache.stat().st_mode & 0o777), "0o755")
 
     def test_checksum_mismatch_installs_nothing(self):
-        name = "channelview_1.1.0_all.deb"
+        name = "trunkvista_1.1.0_all.deb"
         good = make_deb(self.tmp, "1.1.0")
         self.gh.add_release("v1.1.0", {name: good + b"tampered", "SHA256SUMS": sums_for(name, good)})
         rc, _, err = self.go("--yes")
@@ -259,7 +259,7 @@ class Installing(Base):
         rc, _, err = self.go("--yes")
         self.assertEqual((rc, self.installs), (1, []))
         self.assertIn("no SHA256SUMS", err)
-        name = "channelview_1.2.0_all.deb"
+        name = "trunkvista_1.2.0_all.deb"
         data = make_deb(self.tmp, "1.2.0")
         self.gh.add_release("v1.2.0", {name: data, "SHA256SUMS": sums_for("other.deb", data)})
         rc, _, err = self.go("--yes")
@@ -267,27 +267,27 @@ class Installing(Base):
         self.assertIn("no line for", err)
 
     def test_fixed_name_copies_in_a_release_are_ignored(self):
-        """The release workflow also attaches channelview-latest.deb, channelview.py and channelview_demo.html (fixed names for
+        """The release workflow also attaches trunkvista-latest.deb, trunkvista.py and trunkvista_demo.html (fixed names for
         releases/latest/download/...). The updater must still install the versioned package, whatever order GitHub lists the files in."""
-        self.assertIsNone(upd.DEB_RX.match("channelview-latest.deb"))
-        name = "channelview_1.1.0_all.deb"
+        self.assertIsNone(upd.DEB_RX.match("trunkvista-latest.deb"))
+        name = "trunkvista_1.1.0_all.deb"
         data = make_deb(self.tmp, "1.1.0") if HAVE_DPKG else b"not a real deb"
-        sums = sums_for("channelview-latest.deb", data) + sums_for(name, data) + sums_for("channelview.py", b"#!/usr/bin/env python3\n")
-        self.gh.add_release("v1.1.0", {"channelview-latest.deb": data, "channelview.py": b"#!/usr/bin/env python3\n",
-                                       "channelview_demo.html": b"<html>", name: data, "SHA256SUMS": sums})
+        sums = sums_for("trunkvista-latest.deb", data) + sums_for(name, data) + sums_for("trunkvista.py", b"#!/usr/bin/env python3\n")
+        self.gh.add_release("v1.1.0", {"trunkvista-latest.deb": data, "trunkvista.py": b"#!/usr/bin/env python3\n",
+                                       "trunkvista_demo.html": b"<html>", name: data, "SHA256SUMS": sums})
         rc, _, err = self.go("--yes")
         if HAVE_DPKG:
             self.assertEqual((rc, [p.name for p, _, _ in self.installs]), (0, [name]), err)
         else:
-            self.assertEqual(upd.deb_asset({"assets": [{"name": "channelview-latest.deb"}, {"name": name}]})["name"], name)
+            self.assertEqual(upd.deb_asset({"assets": [{"name": "trunkvista-latest.deb"}, {"name": name}]})["name"], name)
 
     def test_the_file_must_be_the_package_of_that_version(self):
         for version, deb in (("1.1.0", make_deb(self.tmp, "1.1.5")), ("1.2.0", make_deb(self.tmp, "1.2.0", package="other")), ("1.3.0", b"garbage")):
-            name = f"channelview_{version}_all.deb"
+            name = f"trunkvista_{version}_all.deb"
             self.gh.add_release("v" + version, {name: deb, "SHA256SUMS": sums_for(name, deb)})
             rc, _, err = self.go("--yes", "--version", version)
             self.assertEqual((rc, self.installs), (1, []), version)
-            self.assertTrue("not channelview" in err or "not a valid" in err, err)
+            self.assertTrue("not trunkvista" in err or "not a valid" in err, err)
 
     def test_pinned_version_older_than_installed_needs_force(self):
         self.release("1.0.1")
@@ -298,13 +298,13 @@ class Installing(Base):
         self.assertIn("--force", out)
         rc, out, err = self.go("--yes", "--version", "v1.0.1", "--force")
         self.assertEqual(rc, 0, out + err)
-        self.assertEqual([(p.name, d, r) for p, d, r in self.installs], [("channelview_1.0.1_all.deb", True, False)])
+        self.assertEqual([(p.name, d, r) for p, d, r in self.installs], [("trunkvista_1.0.1_all.deb", True, False)])
 
     def test_force_reinstalls_the_same_version(self):
         self.release("1.0.0")
         rc, _, _ = self.go("--yes", "--force")
         self.assertEqual(rc, 0)
-        self.assertEqual([(p.name, d, r) for p, d, r in self.installs], [("channelview_1.0.0_all.deb", False, True)])
+        self.assertEqual([(p.name, d, r) for p, d, r in self.installs], [("trunkvista_1.0.0_all.deb", False, True)])
 
     def test_unknown_pinned_version(self):
         self.release("1.0.0")
@@ -355,7 +355,7 @@ class Signatures(Base):
         Path(self.keyring).write_bytes(gpg("--export").stdout)
 
     def signed_release(self, version, armor=False, tamper=False):
-        name = f"channelview_{version}_all.deb"
+        name = f"trunkvista_{version}_all.deb"
         data = make_deb(self.tmp, version)
         sums = sums_for(name, data)
         sfile = Path(self.tmp, "SHA256SUMS")
@@ -418,7 +418,7 @@ class PrivateRepository(Base):
         self.release("1.1.0")
         rc, _, err = self.go("--check")
         self.assertEqual(rc, 1)
-        self.assertIn("CHANNELVIEW_UPDATE_TOKEN_FILE", err)
+        self.assertIn("TRUNKVISTA_UPDATE_TOKEN_FILE", err)
 
     def test_the_token_goes_to_the_api_but_never_to_the_other_host(self):
         if not HAVE_DPKG:

@@ -133,7 +133,7 @@ class Https(unittest.TestCase):
         both = Path(self.tmp, "both.pem")
         both.write_text(self.crt.read_text() + self.key.read_text())
         old = dict(os.environ)
-        os.environ["CHANNELVIEW_TLS_CERT"] = str(both)
+        os.environ["TRUNKVISTA_TLS_CERT"] = str(both)
         try:
             with TlsServer(self.tmp, self.crt, "--demo", "--data-dir", self.tmp + "/d") as s:
                 self.assertEqual(s.get("/")[0], 200)
@@ -146,7 +146,7 @@ class Https(unittest.TestCase):
 
         def run(*args):
             return subprocess.run([sys.executable, str(APP), "--no-browser", "--demo", "--data-dir", self.tmp + "/d", "--port", str(free_port()), *args],
-                                  capture_output=True, text=True, timeout=20, env={k: v for k, v in os.environ.items() if not k.startswith("CHANNELVIEW_TLS")})
+                                  capture_output=True, text=True, timeout=20, env={k: v for k, v in os.environ.items() if not k.startswith("TRUNKVISTA_TLS")})
         r = run("--tls-cert", self.tmp + "/missing.crt")
         self.assertEqual(r.returncode, 1)
         self.assertIn("missing.crt", r.stderr)
@@ -161,7 +161,7 @@ class Https(unittest.TestCase):
 
 
 def load_module():
-    spec = importlib.util.spec_from_file_location("channelview_under_test", APP)
+    spec = importlib.util.spec_from_file_location("trunkvista_under_test", APP)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod

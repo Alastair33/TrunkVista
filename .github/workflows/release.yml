@@ -2,9 +2,9 @@ name: Release
 
 # Runs when a tag such as v1.2.0 (or v1.2.0-rc.1 for a pre-release) is pushed - packaging/release.sh makes and pushes that tag.
 # Builds the .deb, installs it for real on the runner as a test, and publishes it on the GitHub Releases page together with
-# SHA256SUMS (and SHA256SUMS.sig when you have set up signing - see README.md). channelview-update on the servers installs from there.
-# People who download ChannelView are sent to the LATEST release (README.md, "Download"), never to the branch: besides the versioned
-# .deb every release carries channelview-latest.deb, channelview.py and channelview_demo.html under fixed names, so that
+# SHA256SUMS (and SHA256SUMS.sig when you have set up signing - see README.md). trunkvista-update on the servers installs from there.
+# People who download TrunkVista are sent to the LATEST release (README.md, "Download"), never to the branch: besides the versioned
+# .deb every release carries trunkvista-latest.deb, trunkvista.py and trunkvista_demo.html under fixed names, so that
 #   https://github.com/<owner>/<repository>/releases/latest/download/<name>
 # always serves the newest full release (GitHub leaves pre-releases out of "latest").
 on:
@@ -19,12 +19,14 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # the install test builds a package of the old name (ChannelView) from the history, to test the migration
 
       - name: The tag must match VERSION and CHANGELOG.md
         run: |
-          version="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' channelview.py | head -n1)"
+          version="$(sed -n 's/^VERSION = "\([^"]*\)".*/\1/p' trunkvista.py | head -n1)"
           if [ "v$version" != "$GITHUB_REF_NAME" ]; then
-            echo "::error::the tag is $GITHUB_REF_NAME but channelview.py says VERSION = \"$version\". Use packaging/release.sh to make releases."
+            echo "::error::the tag is $GITHUB_REF_NAME but trunkvista.py says VERSION = \"$version\". Use packaging/release.sh to make releases."
             exit 1
           fi
           if ! grep -qF "## [$version]" CHANGELOG.md; then
@@ -39,12 +41,12 @@ jobs:
       - name: The standalone demo page matches the dashboard page
         run: |
           python3 tools/build_demo.py "$RUNNER_TEMP/demo.html"
-          diff -q "$RUNNER_TEMP/demo.html" channelview_demo.html
+          diff -q "$RUNNER_TEMP/demo.html" trunkvista_demo.html
 
       - name: Build the .deb
         env:
           DEB_MAINTAINER: "${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>"
-        run: ./packaging/build_deb.sh      # GITHUB_REPOSITORY is set by Actions: it ends up in /etc/default/channelview
+        run: ./packaging/build_deb.sh      # GITHUB_REPOSITORY is set by Actions: it ends up in /etc/default/trunkvista
 
       - name: Lintian (errors fail the release)
         run: |
@@ -52,18 +54,18 @@ jobs:
           lintian --fail-on error dist/*.deb
 
       - name: Install, upgrade, update, remove and purge it for real
-        run: sudo ./tests/e2e_debian.sh dist/channelview_*_all.deb
+        run: sudo ./tests/e2e_debian.sh dist/trunkvista_*_all.deb
 
       - name: Collect the release files and checksums
         run: |
           # exactly one versioned .deb: the e2e test above has installed it, the fixed-name copy is made only now. The copy is called
-          # channelview-latest.deb (not ..._all.deb) so that channelview-update, which looks for channelview_<version>_all.deb, ignores it.
-          set -- dist/channelview_*_all.deb
-          [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "::error::expected exactly one dist/channelview_*_all.deb, found: $*"; exit 1; }
-          cp -- "$1" dist/channelview-latest.deb
-          cp channelview.py channelview_demo.html dist/
+          # trunkvista-latest.deb (not ..._all.deb) so that trunkvista-update, which looks for trunkvista_<version>_all.deb, ignores it.
+          set -- dist/trunkvista_*_all.deb
+          [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "::error::expected exactly one dist/trunkvista_*_all.deb, found: $*"; exit 1; }
+          cp -- "$1" dist/trunkvista-latest.deb
+          cp trunkvista.py trunkvista_demo.html dist/
           cd dist
-          sha256sum -- *.deb channelview.py channelview_demo.html > SHA256SUMS
+          sha256sum -- *.deb trunkvista.py trunkvista_demo.html > SHA256SUMS
           cat SHA256SUMS
 
       - name: Sign SHA256SUMS (only if the signing secrets exist)
@@ -92,9 +94,9 @@ jobs:
           {
             echo
             echo "---"
-            echo "Install:  \`sudo apt install ./channelview-latest.deb\`   -   update later with:  \`sudo channelview-update\`"
+            echo "Install:  \`sudo apt install ./trunkvista-latest.deb\`   -   update later with:  \`sudo trunkvista-update\`"
             echo
-            echo "Files: \`channelview-latest.deb\` (the same package as \`channelview_${VERSION}_all.deb\`), \`channelview.py\` (the single program file, for systems without apt), \`channelview_demo.html\`, \`SHA256SUMS\`."
+            echo "Files: \`trunkvista-latest.deb\` (the same package as \`trunkvista_${VERSION}_all.deb\`), \`trunkvista.py\` (the single program file, for systems without apt), \`trunkvista_demo.html\`, \`SHA256SUMS\`."
             echo "Always download from the newest release: https://github.com/${GITHUB_REPOSITORY}/releases/latest - not from the branch, which can hold unreleased changes."
           } >> "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"

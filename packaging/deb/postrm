@@ -6,7 +6,7 @@ if [ -d /run/systemd/system ]; then
 fi
 
 if [ "$1" = "remove" ] && command -v deb-systemd-helper >/dev/null 2>&1; then
-    deb-systemd-helper mask 'channelview.service' 'channelview-update.timer' >/dev/null || true
+    deb-systemd-helper mask 'trunkvista.service' 'trunkvista-update.timer' >/dev/null || true
 fi
 
 if [ "$1" = "purge" ]; then
@@ -15,22 +15,22 @@ if [ "$1" = "purge" ]; then
         db_purge || true
     fi
     if command -v deb-systemd-helper >/dev/null 2>&1; then
-        deb-systemd-helper purge 'channelview.service' 'channelview-update.timer' >/dev/null || true
-        deb-systemd-helper unmask 'channelview.service' 'channelview-update.timer' >/dev/null || true
+        deb-systemd-helper purge 'trunkvista.service' 'trunkvista-update.timer' >/dev/null || true
+        deb-systemd-helper unmask 'trunkvista.service' 'trunkvista-update.timer' >/dev/null || true
     fi
-    rm -rf /var/cache/channelview-update
-    rmdir /etc/channelview 2>/dev/null || true
-    if [ -d /etc/channelview ]; then
+    rm -rf /var/cache/trunkvista-update
+    rmdir /etc/trunkvista 2>/dev/null || true
+    if [ -d /etc/trunkvista ]; then
         cat <<'MSG'
-channelview: /etc/channelview (the HTTPS certificate and key from channelview-cert, the update signing key) was kept. To remove it:
-    sudo rm -rf /etc/channelview
+trunkvista: /etc/trunkvista (the HTTPS certificate and key from trunkvista-cert, the update signing key) was kept. To remove it:
+    sudo rm -rf /etc/trunkvista
 MSG
     fi
-    if [ -d /var/lib/channelview ]; then
+    if [ -d /var/lib/trunkvista ]; then
         cat <<'MSG'
-channelview: /var/lib/channelview (your layouts, the saved Zabbix connection with its API token, the accounts) and the
-channelview system user were kept, so a reinstall picks up where you left off. To remove them for good:
-    sudo rm -rf /var/lib/channelview && sudo deluser --system channelview
+trunkvista: /var/lib/trunkvista (your layouts, the saved Zabbix connection with its API token, the accounts) and the
+trunkvista system user were kept, so a reinstall picks up where you left off. To remove them for good:
+    sudo rm -rf /var/lib/trunkvista && sudo deluser --system trunkvista
 MSG
     fi
 fi

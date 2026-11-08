@@ -1,22 +1,22 @@
-# ChannelView logo
+# TrunkVista logo
 
-The mark is a **C** made of link segments in the app's own utilisation colours (low → high: green, lime, amber, orange) around a blue node.
-It reads as the letter C, as a usage gauge, and as the "channel" a link runs through.
+The mark is an open ring of link segments in the app's own utilisation colours (low → high: green, lime, amber, orange) around a blue node: the trunk
+links of a network seen through a lens, and a usage gauge. (It was drawn for the program's first name and is unchanged.)
 
 ## Files
 
 | File | Use |
 |---|---|
-| `channelview-logo-dark.svg` / `.png` | mark + wordmark, for dark backgrounds |
-| `channelview-logo-light.svg` / `.png` | mark + wordmark, for light backgrounds |
-| `channelview-mark.svg` / `channelview-mark-1024.png` | the mark alone, transparent background |
-| `channelview-mark-mono-dark.svg`, `channelview-mark-mono-light.svg` | one-colour mark (print, stamps, dark or light) |
-| `channelview-icon.svg`, `channelview-icon-512/1024.png`, `icon-192.png`, `apple-touch-icon.png` | app icon on a dark tile |
+| `trunkvista-logo-dark.svg` / `.png` | mark + wordmark, for dark backgrounds |
+| `trunkvista-logo-light.svg` / `.png` | mark + wordmark, for light backgrounds |
+| `trunkvista-mark.svg` / `trunkvista-mark-1024.png` | the mark alone, transparent background |
+| `trunkvista-mark-mono-dark.svg`, `trunkvista-mark-mono-light.svg` | one-colour mark (print, stamps, dark or light) |
+| `trunkvista-icon.svg`, `trunkvista-icon-512/1024.png`, `icon-192.png`, `apple-touch-icon.png` | app icon on a dark tile |
 | `favicon.svg`, `favicon.ico`, `favicon-16/32/48.png` | browser tab icon (a slightly heavier drawing that holds up at 16 px) |
 | `social-preview.png` | 1280 × 640, for GitHub: repository → Settings → Social preview |
 | `source/build_logo.py` | regenerates every SVG: `python3 build_logo.py OUTDIR` (needs `uharfbuzz`, `fonttools` and the Inter font; the font folder is set at the top of the script) |
 
-In the program, the page header embeds `channelview-mark.svg` inline (its centre node takes the page's `--accent` colour) and the tab icon is `favicon.svg` plus `favicon-32.png`, both embedded in `channelview.py` as `data:` URIs because the page's security policy only allows images from `data:`.
+In the program, the page header embeds `trunkvista-mark.svg` inline (its centre node takes the page's `--accent` colour) and the tab icon is `favicon.svg` plus `favicon-32.png`, both embedded in `trunkvista.py` as `data:` URIs because the page's security policy only allows images from `data:`.
 
 The wordmark is converted to outlines, so the SVGs look the same on every machine; no font is needed.
 
@@ -34,7 +34,7 @@ The wordmark is converted to outlines, so the SVGs look the same on every machin
 
 ## Wordmark
 
-*Channel* in Inter Bold, *View* in Inter Light, tracking −1.2 %. Always written **ChannelView**: one word, two capitals.
+*Trunk* in Inter Bold, *Vista* in Inter Light, tracking −1.2 %. Always written **TrunkVista**: one word, two capitals.
 
 ## Rules
 

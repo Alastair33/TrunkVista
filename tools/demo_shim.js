@@ -503,7 +503,7 @@
     }
     return out;
   }
-  const layoutKey = id => id === "demo" ? "channelview-demo-layout-v1" : "channelview-layout-v1:" + id;   // one layout per connection
+  const layoutKey = id => id === "demo" ? "trunkvista-demo-layout-v1" : "trunkvista-layout-v1:" + id;   // one layout per connection
   function loadLayout(id) {
     try { const s = ls.get(layoutKey(id)); if (s) return validateLayout(JSON.parse(s)); } catch (e) { /* corrupt or blocked: start from the sample */ }
     return validateLayout(id === "demo" ? demoLayout() : liveStarterLayout());
@@ -511,7 +511,7 @@
   const saveLayout = l => { layout = l; ls.set(layoutKey(conns.active), JSON.stringify(l)); };
 
   // ---------------------------------------------------------------- saved connections
-  const CONN_KEY = "channelview-connections-v1", SECRET_KEY = "channelview-secret:";
+  const CONN_KEY = "trunkvista-connections-v1", SECRET_KEY = "trunkvista-secret:";
   let conns = { active: "demo", profiles: [] }, layout = null, source = null, sourceError = "", cache = null;
   const randId = () => "c-" + Array.from(crypto.getRandomValues(new Uint8Array(4)), b => b.toString(16).padStart(2, "0")).join("");
   const str = (v, n) => String(v == null ? "" : v).trim().slice(0, n);

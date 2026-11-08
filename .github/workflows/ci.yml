@@ -23,17 +23,17 @@ jobs:
         run: |
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
           shellcheck packaging/build_deb.sh packaging/release.sh tests/e2e_debian.sh
-          shellcheck -s sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/channelview-cert
+          shellcheck -s sh packaging/deb/postinst packaging/deb/prerm packaging/deb/postrm packaging/trunkvista-cert
 
       - name: Python and page-script checks (pyflakes rules, JavaScript syntax)
         run: |
           pip install --quiet ruff
-          ruff check --select E9,F,B,PLE --ignore B904,B007,B008 channelview.py packaging/channelview-update packaging/whats_new.py tests tools
+          ruff check --select E9,F,B,PLE --ignore B904,B007,B008 trunkvista.py packaging/trunkvista-update packaging/whats_new.py tests tools
           python3 - <<'EOF'
           import re, subprocess, sys
           from pathlib import Path
           sys.path.insert(0, "tools")
-          src = Path("channelview.py").read_text(encoding="utf-8")
+          src = Path("trunkvista.py").read_text(encoding="utf-8")
           page = re.search(r'^PAGE = r\"\"\"(.*?)\"\"\"', src, re.S | re.M).group(1)
           for i, js in enumerate(re.findall(r"<script[^>]*>(.*?)</script>", page, re.S)):      # the theme script in <head> and the app script
               Path(f"page{i}.js").write_text(js, encoding="utf-8")
@@ -43,13 +43,15 @@ jobs:
       - name: The standalone demo page matches the dashboard page
         run: |
           python3 tools/build_demo.py "$RUNNER_TEMP/demo.html"
-          diff -q "$RUNNER_TEMP/demo.html" channelview_demo.html \
-            || { echo "::error::channelview_demo.html is out of date - run: python3 tools/build_demo.py channelview_demo.html"; exit 1; }
+          diff -q "$RUNNER_TEMP/demo.html" trunkvista_demo.html \
+            || { echo "::error::trunkvista_demo.html is out of date - run: python3 tools/build_demo.py trunkvista_demo.html"; exit 1; }
 
   package:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0       # the install test builds a package of the old name (ChannelView) from the history, to test the migration
 
       - name: Build the .deb
         run: ./packaging/build_deb.sh
@@ -60,8 +62,8 @@ jobs:
           lintian --fail-on error dist/*.deb
 
       - name: Install, upgrade, update, remove and purge it for real
-        run: sudo ./tests/e2e_debian.sh dist/channelview_*_all.deb
+        run: sudo ./tests/e2e_debian.sh dist/trunkvista_*_all.deb
 
       - name: Show the service log if something failed
         if: failure()
-        run: sudo journalctl -u channelview --no-pager -n 100 || true
+        run: sudo journalctl -u trunkvista --no-pager -n 100 || true

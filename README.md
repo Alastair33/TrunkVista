@@ -1,13 +1,13 @@
 <h1 align="center">
   <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/channelview-logo-dark.svg">
-    <img src="docs/logo/channelview-logo-light.svg" alt="ChannelView" height="76">
+    <source media="(prefers-color-scheme: dark)" srcset="docs/logo/trunkvista-logo-dark.svg">
+    <img src="docs/logo/trunkvista-logo-light.svg" alt="TrunkVista" height="76">
   </picture>
 </h1>
 
-> **Download ChannelView from the [latest release](https://github.com/Alastair33/ChannelView/releases/latest)** - not with *Code → Download ZIP* and not by cloning: the branch can hold changes that are not released yet. [Details](#download)
+> **Download TrunkVista from the [latest release](https://github.com/Alastair33/TrunkVista/releases/latest)** - not with *Code → Download ZIP* and not by cloning: the branch can hold changes that are not released yet. [Details](#download)
 
-ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
+TrunkVista is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
 
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
 - **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, proxy, OS, model, …
@@ -17,50 +17,50 @@ ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behi
 - One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
 
 ```
-python3 channelview.py --demo      # try it with simulated Cisco devices, no Zabbix needed -> http://127.0.0.1:8088
-channelview_demo.html              # or just open this file in a browser: a standalone demo
+python3 trunkvista.py --demo      # try it with simulated Cisco devices, no Zabbix needed -> http://127.0.0.1:8088
+trunkvista_demo.html              # or just open this file in a browser: a standalone demo
 ```
 
 Both files are part of every [release](#download).
 
 ## Download
 
-**Always take ChannelView from the newest release:** <{REPO}/releases/latest>
+**Always take TrunkVista from the newest release:** <{REPO}/releases/latest>
 
 The *Code → Download ZIP* button and `git clone` give you the `main` branch as it is right now. That can contain changes that are not released and have not been through the release checks (tests, a real install on a clean machine, checksums). The Releases page is where finished versions are. Every release carries these files, always under the same names:
 
 | I want to ... | File in the latest release |
 |---|---|
-| install it on Debian / Ubuntu | `channelview-latest.deb` (the same package as `channelview_<version>_all.deb`) |
-| run it on another system with Python 3.9+ | `channelview.py` (one file, standard library only) |
-| try it without a Zabbix | `channelview_demo.html` (open it in a browser) |
+| install it on Debian / Ubuntu | `trunkvista-latest.deb` (the same package as `trunkvista_<version>_all.deb`) |
+| run it on another system with Python 3.9+ | `trunkvista.py` (one file, standard library only) |
+| try it without a Zabbix | `trunkvista_demo.html` (open it in a browser) |
 | check what I downloaded | `SHA256SUMS` (and `SHA256SUMS.sig` when the release is signed) |
 
 Addresses that always lead to the newest release (pre-releases are never "latest"):
 
 ```
-{REPO}/releases/latest/download/channelview-latest.deb
-{REPO}/releases/latest/download/channelview.py
-{REPO}/releases/latest/download/channelview_demo.html
+{REPO}/releases/latest/download/trunkvista-latest.deb
+{REPO}/releases/latest/download/trunkvista.py
+{REPO}/releases/latest/download/trunkvista_demo.html
 {REPO}/releases/latest/download/SHA256SUMS
 ```
 
 On a server, download and check the package in one go:
 
 ```
-curl -fLO {REPO}/releases/latest/download/channelview-latest.deb
+curl -fLO {REPO}/releases/latest/download/trunkvista-latest.deb
 curl -fLO {REPO}/releases/latest/download/SHA256SUMS
-sha256sum -c --ignore-missing SHA256SUMS            # must say: channelview-latest.deb: OK
+sha256sum -c --ignore-missing SHA256SUMS            # must say: trunkvista-latest.deb: OK
 ```
 
 While the repository is **private** these addresses only work in a browser that is signed in to GitHub. On a server use the GitHub command-line tool (`gh auth login` once), which downloads the latest release when you do not name one:
 
 ```
-gh release download --repo Alastair33/ChannelView --pattern channelview-latest.deb --pattern SHA256SUMS
+gh release download --repo Alastair33/TrunkVista --pattern trunkvista-latest.deb --pattern SHA256SUMS
 sha256sum -c --ignore-missing SHA256SUMS
 ```
 
-Once it is installed, `sudo channelview-update` keeps it on the newest release - see *Updating from GitHub*. To work **on** the program, clone the repository instead (see *Development*): a checkout is for developers, not for running a server.
+Once it is installed, `sudo trunkvista-update` keeps it on the newest release - see *Updating from GitHub*. To work **on** the program, clone the repository instead (see *Development*): a checkout is for developers, not for running a server.
 
 ## Screenshots
 
@@ -107,7 +107,7 @@ Hover a tile for the device's details, click it (or press Enter) to open them. A
 
 ## Release notes
 
-Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/ChannelView/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
+Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/TrunkVista/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
 
 <!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
 ### What's new in 1.2.1
@@ -188,21 +188,21 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
 
-1. Download `channelview-latest.deb` and `SHA256SUMS` from the **[latest release](https://github.com/Alastair33/ChannelView/releases/latest)** and check them (see *Download* above).
+1. Download `trunkvista-latest.deb` and `SHA256SUMS` from the **[latest release](https://github.com/Alastair33/TrunkVista/releases/latest)** and check them (see *Download* above).
 2. Install it:
 
    ```
-   sudo apt install ./channelview-latest.deb
+   sudo apt install ./trunkvista-latest.deb
    ```
 
-   This creates the `channelview` system user, installs the systemd service `channelview`, enables it and starts it. **It asks for the user name and password of the first administrator** (at least 10 characters). Leave the password empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
+   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the user name and password of the first administrator** (at least 10 characters). Leave the password empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
 3. Open `http://127.0.0.1:8088` on that machine, **sign in**, click the status chip at the top (or press **C**) and add your Zabbix: URL (`https://zabbix.example.com`) and an **API token** (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**.
 
 Check on it:
 
 ```
-systemctl status channelview
-journalctl -u channelview -f
+systemctl status trunkvista
+journalctl -u trunkvista -f
 ```
 
 ### Accounts and sign-in
@@ -214,36 +214,36 @@ journalctl -u channelview -f
 | **admin** | everything: edit tabs, devices and links, the Zabbix connections, and the accounts of the others |
 | **viewer** | look: tabs, playlists, kiosk mode, heatmap, graphs, and *Refresh now*. Nothing else - not even the list of Zabbix connections |
 
-**At the installation** `apt install` asks for the administrator's user name (default `admin`) and password. If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/channelview/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
+**At the installation** `apt install` asks for the administrator's user name (default `admin`) and password. If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/trunkvista/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
 
 To answer the questions in advance (an automated installation):
 
 ```
-echo 'channelview channelview/admin_user string admin
-channelview channelview/admin_password password CHOOSE-A-LONG-PASSWORD
-channelview channelview/admin_password_again password CHOOSE-A-LONG-PASSWORD' | sudo debconf-set-selections
-sudo DEBIAN_FRONTEND=noninteractive apt install ./channelview-latest.deb
+echo 'trunkvista trunkvista/admin_user string admin
+trunkvista trunkvista/admin_password password CHOOSE-A-LONG-PASSWORD
+trunkvista trunkvista/admin_password_again password CHOOSE-A-LONG-PASSWORD' | sudo debconf-set-selections
+sudo DEBIAN_FRONTEND=noninteractive apt install ./trunkvista-latest.deb
 ```
 
 The password is not kept in debconf's database after the installation, but a preseed file you wrote still holds it - delete it afterwards.
 
-**Upgrading from 1.2.x or older:** those versions had no sign-in (viewing was open, editing used the edit token). The upgrade creates the administrator as above, removes the old `edit_token` and from then on asks everybody to sign in. A `channelview-update` that runs from the timer cannot ask: it makes the random-password account, so read `/var/lib/channelview/initial-admin-password` (or run `sudo channelview-user passwd admin`) after such an update.
+**Upgrading from 1.2.x or older:** those versions had no sign-in (viewing was open, editing used the edit token). The upgrade creates the administrator as above, removes the old `edit_token` and from then on asks everybody to sign in. A `trunkvista-update` that runs from the timer cannot ask: it makes the random-password account, so read `/var/lib/trunkvista/initial-admin-password` (or run `sudo trunkvista-user passwd admin`) after such an update.
 
 **Managing accounts** - as an administrator, in the page: the button with your name in the header opens *Account* (change your own password, sign out) and, for administrators, *Users…* (add, change role, automatic sign-out, disable, set a password, sign out everywhere, delete). Or on the server, which also works when nobody can sign in:
 
 ```
-sudo channelview-user list
-sudo channelview-user add anna --role viewer                       # asks for the password twice
-sudo channelview-user add wall1 --idle never --password-stdin      # a wall display; the password comes from standard input
-sudo channelview-user add bob --role admin --random-password       # prints the password once
-sudo channelview-user passwd anna --must-change                    # new password; anna has to change it at the next sign-in
-sudo channelview-user set anna --idle 120                          # sign out after 2 hours without use
-sudo channelview-user set anna --disable                           # or --enable, --role admin
-sudo channelview-user signout anna
-sudo channelview-user delete anna
+sudo trunkvista-user list
+sudo trunkvista-user add anna --role viewer                       # asks for the password twice
+sudo trunkvista-user add wall1 --idle never --password-stdin      # a wall display; the password comes from standard input
+sudo trunkvista-user add bob --role admin --random-password       # prints the password once
+sudo trunkvista-user passwd anna --must-change                    # new password; anna has to change it at the next sign-in
+sudo trunkvista-user set anna --idle 120                          # sign out after 2 hours without use
+sudo trunkvista-user set anna --disable                           # or --enable, --role admin
+sudo trunkvista-user signout anna
+sudo trunkvista-user delete anna
 ```
 
-A running server sees these changes at once. **Locked out?** Every administrator forgot the password: `sudo channelview-user passwd NAME --must-change`.
+A running server sees these changes at once. **Locked out?** Every administrator forgot the password: `sudo trunkvista-user passwd NAME --must-change`.
 
 **Automatic sign-out (per account).** Idle time counts from what a person does on the page (a click, a key, a touch) - the page refreshing itself does not count. The defaults are 60 minutes for an administrator and 8 hours for a viewer; `--idle never` (or *Never* in the Users dialog) is for a **wall display** that has to stay on. The sign-in itself is remembered by the browser and by the server (it survives a restart and an update), so a wall display needs to be signed in once. Give such an account the `viewer` role: a display that is never signed out should not be able to change anything.
 
@@ -252,92 +252,109 @@ A running server sees these changes at once. **Locked out?** Every administrator
 - Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes (600 000 rounds) in `users.json`; sessions as hashes of a random key in `sessions.json`; both owner-only. A new password, disabling an account or *sign out everywhere* ends all sessions of that account.
 - Wrong passwords are slowed down: 10 failures from one address in 5 minutes, or 20 for one account in 15 minutes, block further tries for a while (HTTP 429). Behind a reverse proxy all visitors share the proxy's address, so the limit for the address applies to all of them together; the limit per account protects them in any case.
 - The last enabled administrator cannot be deleted, demoted or disabled, and nobody can demote, disable or delete **their own** account.
-- Every sign-in, failed attempt and account change is in the log (`journalctl -u channelview | grep accounts`) - never a password or a session key.
+- Every sign-in, failed attempt and account change is in the log (`journalctl -u trunkvista | grep accounts`) - never a password or a session key.
 - The session cookie is `HttpOnly` and `SameSite=Strict`, and marked `Secure` when the dashboard serves HTTPS itself. Changes are only accepted with a request token that belongs to the session, so another website cannot make your browser change anything.
 - The Zabbix API token never reaches the browser, whoever is signed in.
 - Do not run the program with `--no-login` on a network: it ignores the accounts and falls back to the old behaviour (everyone can view, editing needs the edit token). Without any account the program refuses to listen on other addresses than the local computer.
-- Running it by hand (without the package): `python3 channelview.py user add NAME --role admin` creates the first account in the data folder (`~/.channelview` by default); `--require-login` makes a server ask for a sign-in even before the first account exists.
+- Running it by hand (without the package): `python3 trunkvista.py user add NAME --role admin` creates the first account in the data folder (`~/.trunkvista` by default); `--require-login` makes a server ask for a sign-in even before the first account exists.
 
 ### Making it reachable from other PCs / wall displays
 
-By default it listens on `127.0.0.1` only. Edit `/etc/default/channelview`:
+By default it listens on `127.0.0.1` only. Edit `/etc/default/trunkvista`:
 
 ```
-CHANNELVIEW_HOST=0.0.0.0
+TRUNKVISTA_HOST=0.0.0.0
 ```
 
-then `sudo systemctl restart channelview` (open the port in your firewall if you run one).
+then `sudo systemctl restart trunkvista` (open the port in your firewall if you run one).
 
 - **Everybody has to sign in** (see above): create the accounts for the people and wall displays first, then change the setting. Without HTTPS the passwords cross the network readable - switch it on (next section) before other PCs open the page.
-- A port below 1024 needs `sudo systemctl edit channelview` → `[Service]` / `AmbientCapabilities=CAP_NET_BIND_SERVICE`.
+- A port below 1024 needs `sudo systemctl edit trunkvista` → `[Service]` / `AmbientCapabilities=CAP_NET_BIND_SERVICE`.
 
 ### HTTPS (do this as soon as other PCs open it)
 
 Without HTTPS the passwords, the session cookie and everything else cross the network readable. The dashboard serves HTTPS **itself** – no Apache or Nginx needed.
 
 ```
-sudo channelview-cert          # self-signed certificate for this machine -> /etc/channelview/tls/
+sudo trunkvista-cert          # self-signed certificate for this machine -> /etc/trunkvista/tls/
 ```
 
-Add the two lines it prints to `/etc/default/channelview` (a fresh install has them there, commented out; after an upgrade from 1.0.0 you add them), then restart:
+Add the two lines it prints to `/etc/default/trunkvista` (a fresh install has them there, commented out; after an upgrade from 1.0.0 you add them), then restart:
 
 ```
-CHANNELVIEW_TLS_CERT=/etc/channelview/tls/server.crt
-CHANNELVIEW_TLS_KEY=/etc/channelview/tls/server.key
+TRUNKVISTA_TLS_CERT=/etc/trunkvista/tls/server.crt
+TRUNKVISTA_TLS_KEY=/etc/trunkvista/tls/server.key
 ```
 ```
-sudo systemctl restart channelview      # now:  https://<server>:8088/
+sudo systemctl restart trunkvista      # now:  https://<server>:8088/
 ```
 
 - Typing `http://` on that port redirects to `https://`. TLS 1.2 or newer only.
 - **Browser warning:** a self-signed certificate is not trusted until you import `server.crt` as a trusted certificate on each PC / kiosk that opens the page. With a certificate from your own CA or Let's Encrypt there is no warning.
-- **Your own certificate:** point the two settings at your files. The certificate file holds the full chain (certificate first); the key must be readable by the group `channelview` (`chgrp channelview key.pem && chmod 640 key.pem`). The key may also sit in the certificate file – then leave `CHANNELVIEW_TLS_KEY` out.
-- **Renewal needs no restart.** The files are looked at again when they change (checked on new connections, about every 10 s). `sudo channelview-cert --force` or certbot is enough. If the new files do not load (the key does not match, a file is half written) the old certificate stays in use and the log says so.
-- A wrong certificate path or a key that does not fit stops the service at start with the reason in `journalctl -u channelview`.
-- Let's Encrypt, as an example of a deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/channelview`, adjust the paths):
+- **Your own certificate:** point the two settings at your files. The certificate file holds the full chain (certificate first); the key must be readable by the group `trunkvista` (`chgrp trunkvista key.pem && chmod 640 key.pem`). The key may also sit in the certificate file – then leave `TRUNKVISTA_TLS_KEY` out.
+- **Renewal needs no restart.** The files are looked at again when they change (checked on new connections, about every 10 s). `sudo trunkvista-cert --force` or certbot is enough. If the new files do not load (the key does not match, a file is half written) the old certificate stays in use and the log says so.
+- A wrong certificate path or a key that does not fit stops the service at start with the reason in `journalctl -u trunkvista`.
+- Let's Encrypt, as an example of a deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/trunkvista`, adjust the paths):
 
   ```
   #!/bin/sh
-  install -D -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/channelview/tls/server.crt
-  install -D -m 0640 -g channelview "$RENEWED_LINEAGE/privkey.pem" /etc/channelview/tls/server.key
+  install -D -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/trunkvista/tls/server.crt
+  install -D -m 0640 -g trunkvista "$RENEWED_LINEAGE/privkey.pem" /etc/trunkvista/tls/server.key
   ```
-- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools): the proxy must speak HTTPS to the browsers, and you add `--secure-cookie` to `CHANNELVIEW_ARGS` in `/etc/default/channelview` so that the sign-in cookie is marked `Secure` although the proxy talks plain HTTP to the dashboard. While the dashboard listens on `127.0.0.1` only, it accepts requests whose `Host` header is `127.0.0.1:<port>` / `localhost:<port>` (protection against DNS rebinding), so the proxy has to send that (nginx: `proxy_set_header Host 127.0.0.1:8088;`), or the dashboard has to listen on a non-loopback address that only the proxy can reach. Accounts are always required, so a proxy on the same machine does not open anything up.
+- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools): the proxy must speak HTTPS to the browsers, and you add `--secure-cookie` to `TRUNKVISTA_ARGS` in `/etc/default/trunkvista` so that the sign-in cookie is marked `Secure` although the proxy talks plain HTTP to the dashboard. While the dashboard listens on `127.0.0.1` only, it accepts requests whose `Host` header is `127.0.0.1:<port>` / `localhost:<port>` (protection against DNS rebinding), so the proxy has to send that (nginx: `proxy_set_header Host 127.0.0.1:8088;`), or the dashboard has to listen on a non-loopback address that only the proxy can reach. Accounts are always required, so a proxy on the same machine does not open anything up.
 
 ## Updating from GitHub
 
 ```
-sudo channelview-update              # shows what is new, asks, installs, restarts the service
-sudo channelview-update --check      # only look; exit status 10 = an update is available (handy for monitoring)
-sudo channelview-update --yes        # no question
-sudo channelview-update --version 1.0.0 --force     # go back to a given release
-sudo channelview-update --channel prerelease        # release candidates too (or CHANNELVIEW_UPDATE_CHANNEL=prerelease in /etc/default/channelview)
+sudo trunkvista-update              # shows what is new, asks, installs, restarts the service
+sudo trunkvista-update --check      # only look; exit status 10 = an update is available (handy for monitoring)
+sudo trunkvista-update --yes        # no question
+sudo trunkvista-update --version 1.0.0 --force     # go back to a given release
+sudo trunkvista-update --channel prerelease        # release candidates too (or TRUNKVISTA_UPDATE_CHANNEL=prerelease in /etc/default/trunkvista)
 ```
 
-It reads `CHANNELVIEW_UPDATE_REPO` from `/etc/default/channelview` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/channelview`, your connections, layouts and accounts are kept.
+It reads `TRUNKVISTA_UPDATE_REPO` from `/etc/default/trunkvista` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/trunkvista`, your connections, layouts and accounts are kept.
 
 **Automatic updates** are off. To check every night (about 03:30, random delay up to an hour) and install:
 
 ```
-sudo systemctl enable --now channelview-update.timer
+sudo systemctl enable --now trunkvista-update.timer
 ```
 
-Look at it with `systemctl list-timers channelview-update.timer` and `journalctl -u channelview-update`.
+Look at it with `systemctl list-timers trunkvista-update.timer` and `journalctl -u trunkvista-update`.
 
-**Private repository:** put a GitHub token (fine-grained, read-only access to *Contents* of this repository) in a file, `chmod 600` it, and set `CHANNELVIEW_UPDATE_TOKEN_FILE=/path/to/file` in `/etc/default/channelview`. The token is only ever sent to the GitHub API.
+**Private repository:** put a GitHub token (fine-grained, read-only access to *Contents* of this repository) in a file, `chmod 600` it, and set `TRUNKVISTA_UPDATE_TOKEN_FILE=/path/to/file` in `/etc/default/trunkvista`. The token is only ever sent to the GitHub API.
 
 ### What protects an update
 
 - Every release carries `SHA256SUMS`; the update refuses a `.deb` that does not match it, and a release without `SHA256SUMS`.
-- It checks that the file really is `channelview` for `all` architectures with the announced version before installing.
-- **Optional signature.** If `/etc/channelview/release-key.gpg` exists, `SHA256SUMS` must carry a valid GPG signature (`SHA256SUMS.sig`) from that key, otherwise nothing is installed. Set it up once, see *Signing releases* below.
+- It checks that the file really is `trunkvista` for `all` architectures with the announced version before installing.
+- **Optional signature.** If `/etc/trunkvista/release-key.gpg` exists, `SHA256SUMS` must carry a valid GPG signature (`SHA256SUMS.sig`) from that key, otherwise nothing is installed. Set it up once, see *Signing releases* below.
 - Without a signature the trust is "whoever can publish a release in the repository". With one it is "whoever holds the signing key". Either way you are installing code that runs as a service on your server: keep the GitHub account protected (2FA) and the repository private if the dashboard shows anything you would rather not publish.
+
+## Upgrading from ChannelView
+
+TrunkVista is the new name of ChannelView (same program, same data). On a Debian / Ubuntu machine that runs the old package:
+
+```
+# download trunkvista-latest.deb from the latest release (see Download), then:
+sudo apt install ./trunkvista-latest.deb
+```
+
+The package of the new name **replaces** `channelview` and takes everything over: layouts, Zabbix connections, accounts, `custom.css`, the HTTPS certificate and key, the settings in `/etc/default` (their names change from `CHANNELVIEW_*` to `TRUNKVISTA_*`) and the nightly update check if you had switched it on. The installation prints what it moved. Everybody has to sign in once more. If you had no accounts yet (ChannelView 1.2.1 or older), it asks for the first administrator as in a fresh installation.
+
+- **This step is manual, once:** `channelview-update` only looks for packages called `channelview`, so it cannot find the new release. After the first `apt install` above, `sudo trunkvista-update` works as usual.
+- **Tidy up:** `sudo apt purge channelview` removes the leftover package record; the moved data is not touched.
+- **Not moved:** a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), and anything of your own that calls `channelview-user`, `channelview-update` or `channelview-cert`, the old service name or the old paths.
+- **Without the package** (running `python3 trunkvista.py`): `CHANNELVIEW_*` variables are still read, `~/.channelview` is renamed to `~/.trunkvista` the first time, and the browser's remembered choices (theme, view options) are carried over.
+- **GitHub:** when the repository is renamed, GitHub forwards the old addresses, so existing links and `TRUNKVISTA_UPDATE_REPO` settings keep working.
 
 ## Changing the design
 
 **Quick, on the server – `custom.css`.** Your own style rules, added after the built-in ones. The file lives in the data folder, so updates never touch it, and it is read at every page load (edit, press F5 – no restart).
 
 ```
-sudo nano /var/lib/channelview/custom.css
+sudo nano /var/lib/trunkvista/custom.css
 ```
 ```css
 :root { --accent: #ff9f1a; }                    /* colours of the interface, in both themes */
@@ -377,18 +394,18 @@ The complete list is the first two rules of the page's CSS (`:root` for dark, `:
 
 **The logo.** The header shows the mark (a C of link segments in the usage colours around a blue node) and the browser tab uses the same drawing as its icon. The centre node follows `--accent`, so a changed accent colour changes it too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
 
-**Bigger changes, for everybody – a release.** The whole page (HTML, CSS, JavaScript) is the `PAGE` text in `channelview.py`.
+**Bigger changes, for everybody – a release.** The whole page (HTML, CSS, JavaScript) is the `PAGE` text in `trunkvista.py`.
 
-1. Change it and look: `python3 channelview.py --demo` (reload the browser after each change).
+1. Change it and look: `python3 trunkvista.py --demo` (reload the browser after each change).
 2. Write what changed under `## [Unreleased]` in `CHANGELOG.md`.
-3. Release it (*Patching and releasing* below). Every server then offers it with `sudo channelview-update`.
+3. Release it (*Patching and releasing* below). Every server then offers it with `sudo trunkvista-update`.
 
 ## Setting up GitHub and the first release (maintainer)
 
 One-time setup:
 
 ```
-cd ChannelView
+cd TrunkVista
 git init -b main
 git add -A && git commit -m "Initial import"
 git remote add origin git@github.com:<you>/<repository>.git
@@ -401,9 +418,9 @@ The first release (the notes are already written under `## [1.1.0]`; later ones:
 packaging/release.sh --push 1.1.0
 ```
 
-What happens after the push: GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the `.deb`, **installs / upgrades / updates / removes / purges it on a clean runner**, and publishes the release with `channelview_1.1.0_all.deb`, the same package again as `channelview-latest.deb`, `channelview.py`, `channelview_demo.html` and `SHA256SUMS` (and `SHA256SUMS.sig`). The fixed names are what makes `releases/latest/download/<name>` always serve the newest release (see *Download*); `channelview-update` ignores `channelview-latest.deb` because it looks for `channelview_<version>_all.deb`. If anything fails nothing is published – fix it, delete the tag (`git push --delete origin v1.1.0; git tag -d v1.1.0`) and release again. Servers get it with `sudo channelview-update`.
+What happens after the push: GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the `.deb`, **installs / upgrades / updates / removes / purges it on a clean runner**, and publishes the release with `trunkvista_1.1.0_all.deb`, the same package again as `trunkvista-latest.deb`, `trunkvista.py`, `trunkvista_demo.html` and `SHA256SUMS` (and `SHA256SUMS.sig`). The fixed names are what makes `releases/latest/download/<name>` always serve the newest release (see *Download*); `trunkvista-update` ignores `trunkvista-latest.deb` because it looks for `trunkvista_<version>_all.deb`. If anything fails nothing is published – fix it, delete the tag (`git push --delete origin v1.1.0; git tag -d v1.1.0`) and release again. Servers get it with `sudo trunkvista-update`.
 
-A tag with a dash (`v1.2.0-rc.1`) is a **pre-release**: only servers on the `prerelease` channel see it. Inside the package its version is `1.2.0~rc.1`, which sorts before `1.2.0`. The file is called `channelview_1.2.0-rc.1_all.deb` because GitHub renames a `~` in file names.
+A tag with a dash (`v1.2.0-rc.1`) is a **pre-release**: only servers on the `prerelease` channel see it. Inside the package its version is `1.2.0~rc.1`, which sorts before `1.2.0`. The file is called `trunkvista_1.2.0-rc.1_all.deb` because GitHub renames a `~` in file names.
 
 The workflow refuses a tag that does not match `VERSION`.
 
@@ -412,19 +429,19 @@ The workflow refuses a tag that does not match `VERSION`.
 ### Signing releases (optional, recommended)
 
 ```
-gpg --quick-generate-key "ChannelView releases" ed25519 sign never      # choose a passphrase
-gpg --armor --export-secret-keys "ChannelView releases"                 # -> GitHub: Settings > Secrets and variables > Actions > RELEASE_GPG_PRIVATE_KEY
+gpg --quick-generate-key "TrunkVista releases" ed25519 sign never      # choose a passphrase
+gpg --armor --export-secret-keys "TrunkVista releases"                 # -> GitHub: Settings > Secrets and variables > Actions > RELEASE_GPG_PRIVATE_KEY
                                                                              #    (the passphrase goes into the secret RELEASE_GPG_PASSPHRASE)
-gpg --export "ChannelView releases" > release-key.gpg                   # the public key, for the servers:
+gpg --export "TrunkVista releases" > release-key.gpg                   # the public key, for the servers:
 sudo apt install gpgv
-sudo install -D -m 0644 release-key.gpg /etc/channelview/release-key.gpg
+sudo install -D -m 0644 release-key.gpg /etc/trunkvista/release-key.gpg
 ```
 
 From the next release on the workflow signs `SHA256SUMS`. From the moment the key file exists on a server, that server installs **only** signed releases – do the first signed release before you copy the key to the servers.
 
 ## Patching and releasing (maintainer)
 
-`VERSION` in `channelview.py` is the only place a version lives; `packaging/release.sh` sets it.
+`VERSION` in `trunkvista.py` is the only place a version lives; `packaging/release.sh` sets it.
 
 | Command | Use it for | Example |
 |---|---|---|
@@ -435,58 +452,60 @@ From the next release on the workflow signs `SHA256SUMS`. From the moment the ke
 
 It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the release notes and the release's **What's new in X.Y.Z** segment in the README – the latest three versions are shown there, made by `packaging/whats_new.py`, so edit the CHANGELOG and never that block), runs the unit tests (a failure puts everything back), commits, tags, and with `--push` pushes – GitHub Actions does the rest. Without `--push` it stops before publishing and tells you how to undo.
 
-**Try a patch on one server first:** release `1.1.1-rc.1`, then on a test server `sudo channelview-update --channel prerelease`. If it is good, release the final version with `packaging/release.sh 1.1.1 --push` (the notes are still under `[Unreleased]`); servers on the normal channel only ever see that one.
+**Try a patch on one server first:** release `1.1.1-rc.1`, then on a test server `sudo trunkvista-update --channel prerelease`. If it is good, release the final version with `packaging/release.sh 1.1.1 --push` (the notes are still under `[Unreleased]`); servers on the normal channel only ever see that one.
 
-**Back out a bad release:** on each server `sudo channelview-update --version 1.1.0 --force`, then fix and release again. Do not delete a release servers have installed.
+**Back out a bad release:** on each server `sudo trunkvista-update --version 1.1.0 --force`, then fix and release again. Do not delete a release servers have installed.
 
 ## Where things are
 
 | What | Where |
 |---|---|
-| Program | `/usr/lib/channelview/channelview.py` (command `channelview`) |
-| Updater, certificate helper, account manager | `/usr/bin/channelview-update`, `/usr/bin/channelview-cert`, `/usr/bin/channelview-user` |
-| Service, update service and timer | `/lib/systemd/system/channelview*.service`, `channelview-update.timer` |
-| Settings (listen address, port, update repository / channel) | `/etc/default/channelview` – kept on upgrades |
-| Data: connections (Zabbix API token, owner-only), layouts, accounts (password hashes, owner-only), sessions | `/var/lib/channelview/` (`connections.json`, `dashboard*.json`, `users.json`, `sessions.json`) |
-| The random first password, until it has been changed (root only) | `/var/lib/channelview/initial-admin-password` |
-| Your style rules (optional) | `/var/lib/channelview/custom.css` |
-| HTTPS certificate and key (optional) | `/etc/channelview/tls/` (`server.crt`, `server.key`) |
-| Signing key for updates (optional) | `/etc/channelview/release-key.gpg` |
+| Program | `/usr/lib/trunkvista/trunkvista.py` (command `trunkvista`) |
+| Updater, certificate helper, account manager | `/usr/bin/trunkvista-update`, `/usr/bin/trunkvista-cert`, `/usr/bin/trunkvista-user` |
+| Service, update service and timer | `/lib/systemd/system/trunkvista*.service`, `trunkvista-update.timer` |
+| Settings (listen address, port, update repository / channel) | `/etc/default/trunkvista` – kept on upgrades |
+| Data: connections (Zabbix API token, owner-only), layouts, accounts (password hashes, owner-only), sessions | `/var/lib/trunkvista/` (`connections.json`, `dashboard*.json`, `users.json`, `sessions.json`) |
+| The random first password, until it has been changed (root only) | `/var/lib/trunkvista/initial-admin-password` |
+| Your style rules (optional) | `/var/lib/trunkvista/custom.css` |
+| HTTPS certificate and key (optional) | `/etc/trunkvista/tls/` (`server.crt`, `server.key`) |
+| Signing key for updates (optional) | `/etc/trunkvista/release-key.gpg` |
 
-The service runs as its own user `channelview`, sandboxed by systemd (no access to home directories, read-only system, only its data folder is writable).
+The service runs as its own user `trunkvista`, sandboxed by systemd (no access to home directories, read-only system, only its data folder is writable).
 
-**Backup:** copy `/var/lib/channelview` (it holds the API token and the password hashes – treat the copy as a secret).
+**Backup:** copy `/var/lib/trunkvista` (it holds the API token and the password hashes – treat the copy as a secret).
 
-**Remove:** `sudo apt remove channelview` removes the program, keeps settings and data. `sudo apt purge channelview` also removes `/etc/default/channelview`. Data (including the accounts), the user and `/etc/channelview` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/channelview /etc/channelview && sudo deluser --system channelview`.
+**Remove:** `sudo apt remove trunkvista` removes the program, keeps settings and data. `sudo apt purge trunkvista` also removes `/etc/default/trunkvista`. Data (including the accounts), the user and `/etc/trunkvista` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/trunkvista /etc/trunkvista && sudo deluser --system trunkvista`.
 
 ## Troubleshooting
 
 | Symptom | Look at |
 |---|---|
-| Page does not open | `systemctl status channelview`, `journalctl -u channelview -n 50`; port taken? change `CHANNELVIEW_PORT` |
-| Service stops right after enabling HTTPS | `journalctl -u channelview -n 20` – "Cannot use the TLS certificate": wrong path, key does not fit, or the key is not readable by the group `channelview` |
-| Browser: "not secure" / certificate warning | the certificate is self-signed: import `server.crt` on that PC, or use a certificate from your CA / Let's Encrypt; the name in the address must be one of the names `channelview-cert` printed |
-| Cannot sign in: "Wrong user name or password" | the same message is shown for an unknown name, a wrong password and a disabled account; `sudo channelview-user list` shows the accounts, `sudo channelview-user passwd NAME` sets a new password |
-| "Too many failed attempts" | wait the number of seconds it says (the log tells who and from where: `journalctl -u channelview \| grep accounts`) |
-| Signed out again and again | the account's automatic sign-out is too short for the use: `sudo channelview-user set NAME --idle never` (wall display) or a longer time |
-| Page says "No account exists yet" | the installation could not make one: `sudo channelview-user add NAME --role admin` |
+| Page does not open | `systemctl status trunkvista`, `journalctl -u trunkvista -n 50`; port taken? change `TRUNKVISTA_PORT` |
+| Service stops right after enabling HTTPS | `journalctl -u trunkvista -n 20` – "Cannot use the TLS certificate": wrong path, key does not fit, or the key is not readable by the group `trunkvista` |
+| Browser: "not secure" / certificate warning | the certificate is self-signed: import `server.crt` on that PC, or use a certificate from your CA / Let's Encrypt; the name in the address must be one of the names `trunkvista-cert` printed |
+| Cannot sign in: "Wrong user name or password" | the same message is shown for an unknown name, a wrong password and a disabled account; `sudo trunkvista-user list` shows the accounts, `sudo trunkvista-user passwd NAME` sets a new password |
+| "Too many failed attempts" | wait the number of seconds it says (the log tells who and from where: `journalctl -u trunkvista \| grep accounts`) |
+| Signed out again and again | the account's automatic sign-out is too short for the use: `sudo trunkvista-user set NAME --idle never` (wall display) or a longer time |
+| Page says "No account exists yet" | the installation could not make one: `sudo trunkvista-user add NAME --role admin` |
 | "This needs an administrator account" | you are signed in as a viewer |
 | Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** |
-| Updater: "no stable release" | the repository has no non-pre-release release yet, or `CHANNELVIEW_UPDATE_REPO` is wrong; private repository → token file |
-| Updater: "releases must be signed" | `/etc/channelview/release-key.gpg` exists but the release is not signed – sign it, or remove the key file |
+| Updater: "no stable release" | the repository has no non-pre-release release yet, or `TRUNKVISTA_UPDATE_REPO` is wrong; private repository → token file |
+| Updater: "releases must be signed" | `/etc/trunkvista/release-key.gpg` exists but the release is not signed – sign it, or remove the key file |
 | Updater: "API rate limit is used up" | GitHub allows 60 unauthenticated API calls per hour per address; use a token file |
 
 ## Development
 
-Clone the repository only to work on the program. To *use* ChannelView take the [latest release](#download): the branch you clone can be ahead of it.
+Clone the repository only to work on the program. To *use* TrunkVista take the [latest release](#download): the branch you clone can be ahead of it.
 
 ```
-python3 channelview.py --demo                       # run from a checkout
+python3 trunkvista.py --demo                       # run from a checkout
 python3 -m unittest discover -s tests -v              # unit tests: app, accounts and sign-in, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git)
-python3 tools/build_demo.py channelview_demo.html   # rebuild the standalone demo page after changing the dashboard page
-packaging/build_deb.sh                                # -> dist/channelview_<version>_all.deb + SHA256SUMS (needs dpkg-deb)
+python3 tools/build_demo.py trunkvista_demo.html   # rebuild the standalone demo page after changing the dashboard page
+packaging/build_deb.sh                                # -> dist/trunkvista_<version>_all.deb + SHA256SUMS (needs dpkg-deb)
 sudo tests/e2e_debian.sh                              # really installs / upgrades / purges the package - only on a throw-away machine
 ```
+
+`tests/e2e_debian.sh` also tests the move from the old name: it builds `channelview` packages from the git history (the last release, and the commit before the rename, `589d2cb`), so run it in a clone with the full history (`fetch-depth: 0` in the workflows), or give it a package of the old name with `E2E_LEGACY_DEB=path/channelview_X_all.deb`; without either that part is skipped.
 
 ## Licence
 

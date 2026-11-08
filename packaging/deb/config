@@ -1,36 +1,38 @@
 #!/bin/sh
 # Asks for the first account (user name and password) - only when the installation is interactive and there is no account yet.
-# A noninteractive installation (apt-get with DEBIAN_FRONTEND=noninteractive, channelview-update) asks nothing: the postinst makes the
+# A noninteractive installation (apt-get with DEBIAN_FRONTEND=noninteractive, trunkvista-update) asks nothing: the postinst makes the
 # account from preseeded answers (debconf-set-selections) or, without them, with a random password.
 set -e
 . /usr/share/debconf/confmodule
 db_version 2.0 || true
 
-DATA=/var/lib/channelview
-if [ -s "$DATA/users.json" ] && grep -q '"username"' "$DATA/users.json" 2>/dev/null; then
-    exit 0          # an upgrade or a reinstall: the accounts are there
-fi
+DATA=/var/lib/trunkvista
+for d in "$DATA" /var/lib/channelview; do        # (the second: an installation under the old name, whose data this package takes over)
+    if [ -s "$d/users.json" ] && grep -q '"username"' "$d/users.json" 2>/dev/null; then
+        exit 0      # an upgrade or a reinstall: the accounts are there
+    fi
+done
 
-db_input high channelview/admin_user || true
+db_input high trunkvista/admin_user || true
 db_go || true
 tries=0
 while [ "$tries" -lt 5 ]; do
-    db_input high channelview/admin_password || true
-    db_input high channelview/admin_password_again || true
+    db_input high trunkvista/admin_password || true
+    db_input high trunkvista/admin_password_again || true
     db_go || true
     p1=""; p2=""
-    if db_get channelview/admin_password; then p1="$RET"; fi
-    if db_get channelview/admin_password_again; then p2="$RET"; fi
+    if db_get trunkvista/admin_password; then p1="$RET"; fi
+    if db_get trunkvista/admin_password_again; then p2="$RET"; fi
     # empty = "make one for me" (or nothing was asked); otherwise both entries must agree and be long enough
     if [ -z "$p1" ] || { [ "$p1" = "$p2" ] && [ "${#p1}" -ge 10 ]; }; then
         exit 0
     fi
     tries=$((tries + 1))
-    db_reset channelview/admin_password || true
-    db_reset channelview/admin_password_again || true
-    db_input critical channelview/password_problem || true
+    db_reset trunkvista/admin_password || true
+    db_reset trunkvista/admin_password_again || true
+    db_input critical trunkvista/password_problem || true
     db_go || true
 done
-db_reset channelview/admin_password || true          # nothing usable after five tries: the installer makes a random password
-db_reset channelview/admin_password_again || true
+db_reset trunkvista/admin_password || true          # nothing usable after five tries: the installer makes a random password
+db_reset trunkvista/admin_password_again || true
 exit 0

@@ -1,23 +1,23 @@
 #!/bin/sh
-# channelview-cert - make a self-signed HTTPS certificate for the dashboard.
+# trunkvista-cert - make a self-signed HTTPS certificate for the dashboard.
 #
-#   sudo channelview-cert                          certificate for this machine's names and addresses
-#   sudo channelview-cert --name noc.example.com --ip 10.0.0.5     only these (localhost and 127.0.0.1 are always included)
-#   sudo channelview-cert --days 365 --force       replace an existing certificate (the running dashboard uses the new one within seconds)
+#   sudo trunkvista-cert                          certificate for this machine's names and addresses
+#   sudo trunkvista-cert --name noc.example.com --ip 10.0.0.5     only these (localhost and 127.0.0.1 are always included)
+#   sudo trunkvista-cert --days 365 --force       replace an existing certificate (the running dashboard uses the new one within seconds)
 #
-# Writes /etc/channelview/tls/server.crt and server.key (the key readable by root and the channelview group only) and prints what to put
-# into /etc/default/channelview. Browsers warn about a self-signed certificate until the certificate is trusted on the PC (or kiosk) that
+# Writes /etc/trunkvista/tls/server.crt and server.key (the key readable by root and the trunkvista group only) and prints what to put
+# into /etc/default/trunkvista. Browsers warn about a self-signed certificate until the certificate is trusted on the PC (or kiosk) that
 # opens the page: copy server.crt there and import it as a trusted certificate. With a certificate from your own CA or Let's Encrypt, point
-# CHANNELVIEW_TLS_CERT / CHANNELVIEW_TLS_KEY at those files instead - this script is then not needed.
+# TRUNKVISTA_TLS_CERT / TRUNKVISTA_TLS_KEY at those files instead - this script is then not needed.
 set -eu
 
-dir=/etc/channelview/tls
+dir=/etc/trunkvista/tls
 days=825
 force=no
 names=""
 ips=""
 
-die() { echo "channelview-cert: $*" >&2; exit 1; }
+die() { echo "trunkvista-cert: $*" >&2; exit 1; }
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -30,7 +30,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-[ "$(id -u)" = 0 ] || die "run as root (sudo channelview-cert)"
+[ "$(id -u)" = 0 ] || die "run as root (sudo trunkvista-cert)"
 command -v openssl >/dev/null 2>&1 || die "openssl not found (apt install openssl)"
 case "$days" in ''|*[!0-9]*) die "--days must be a number" ;; esac
 
@@ -55,19 +55,19 @@ if [ -e "$dir/server.crt" ] || [ -e "$dir/server.key" ]; then
     [ "$force" = yes ] || die "$dir/server.crt already exists - use --force to replace it (the dashboard picks the new certificate up by itself)"
 fi
 
-if getent group channelview >/dev/null 2>&1; then
-    group=channelview
+if getent group trunkvista >/dev/null 2>&1; then
+    group=trunkvista
     dirmode=0750
     keymode=0640
 else
-    echo "channelview-cert: no group channelview here (package not installed?) - key stays readable by root only" >&2
+    echo "trunkvista-cert: no group trunkvista here (package not installed?) - key stays readable by root only" >&2
     group=root
     dirmode=0700
     keymode=0600
 fi
 
 umask 077
-install -d -m 0755 /etc/channelview
+install -d -m 0755 /etc/trunkvista
 install -d -m "$dirmode" -o root -g "$group" "$dir"
 work="$(mktemp -d "$dir/.new.XXXXXX")"
 trap 'rm -rf "$work"' EXIT
@@ -90,14 +90,14 @@ echo "Key:         $dir/server.key"
 echo "SHA-256:     $(openssl x509 -in "$dir/server.crt" -noout -fingerprint -sha256 | sed 's/^.*=//')"
 cat <<EOF
 
-To use it, put these two lines into /etc/default/channelview and restart the dashboard:
+To use it, put these two lines into /etc/default/trunkvista and restart the dashboard:
 
-    CHANNELVIEW_TLS_CERT=$dir/server.crt
-    CHANNELVIEW_TLS_KEY=$dir/server.key
+    TRUNKVISTA_TLS_CERT=$dir/server.crt
+    TRUNKVISTA_TLS_KEY=$dir/server.key
 
-    sudo systemctl restart channelview
+    sudo systemctl restart trunkvista
 
-Then open  https://$cn:<port>/  (the port is CHANNELVIEW_PORT, 8088 unless you changed it).
+Then open  https://$cn:<port>/  (the port is TRUNKVISTA_PORT, 8088 unless you changed it).
 To get rid of the browser warning, import $dir/server.crt as a trusted certificate on the PCs / kiosks that open the page.
-Renew with:  sudo channelview-cert --force     (no restart needed)
+Renew with:  sudo trunkvista-cert --force     (no restart needed)
 EOF

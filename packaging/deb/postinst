@@ -2,10 +2,71 @@
 set -e
 . /usr/share/debconf/confmodule      # (from here on standard output goes to standard error: debconf owns the real one)
 
-SVC_USER=channelview
-DATA=/var/lib/channelview
-PROG=/usr/lib/channelview/channelview.py
+SVC_USER=trunkvista
+DATA=/var/lib/trunkvista
+PROG=/usr/lib/trunkvista/trunkvista.py
 created_note=""
+enable_timer=""
+OLD=channelview          # the program's first name; the package of that name conflicts with this one and is removed when this one is installed
+
+# The text shown at the end of the installation: every part adds to it (the migration note must not be lost when an account is made too)
+note() { created_note="${created_note:+$created_note
+}$*"; }
+
+# An installation under the old name (package "channelview"): bring its data, settings, certificate and the nightly-update choice along.
+# By now apt / dpkg have removed the old package (stopping its service); what an administrator may have changed is still on disk.
+migrate_old_install() {
+    old_data=/var/lib/$OLD; old_etc=/etc/$OLD; old_def=/etc/default/$OLD; moved=""
+    [ -d "$old_data" ] || [ -d "$old_etc" ] || [ -f "$old_def" ] || return 0
+    old_gid="$(getent group "$OLD" 2>/dev/null | cut -d: -f3)"
+    if [ -d "$old_data" ]; then       # layouts, connections (the Zabbix API token), accounts, sessions, custom.css
+        if [ -z "$(ls -A "$DATA" 2>/dev/null)" ]; then
+            rmdir "$DATA" 2>/dev/null || true
+            if mv "$old_data" "$DATA"; then
+                chown -R "$SVC_USER:$SVC_USER" "$DATA" || true
+                moved="$moved $DATA"
+            fi
+        else
+            echo "trunkvista: $DATA already has files, so $old_data was left where it is (copy what you need by hand)." >&2
+        fi
+    fi
+    if [ -d "$old_etc" ] && [ ! -e /etc/trunkvista ]; then       # the HTTPS certificate and key, the update signing key
+        if mv "$old_etc" /etc/trunkvista; then
+            [ -z "$old_gid" ] || find /etc/trunkvista -gid "$old_gid" -exec chgrp "$SVC_USER" {} + 2>/dev/null || true
+            moved="$moved /etc/trunkvista"
+        fi
+    fi
+    if [ -f "$old_def" ]; then       # listen address, port, HTTPS files, update settings
+        want="$(dpkg-query -W -f='${Conffiles}\n' "$OLD" 2>/dev/null | awk -v f="$old_def" '$1 == f { print $2 }')"
+        have="$(md5sum "$old_def" | cut -d' ' -f1)"
+        if [ -n "$want" ] && [ "$want" = "$have" ]; then
+            :                         # never edited: the new package's own file is the better one
+        else
+            sed -e 's/CHANNELVIEW_/TRUNKVISTA_/g' -e 's#/etc/channelview#/etc/trunkvista#g' -e 's#/var/lib/channelview#/var/lib/trunkvista#g' \
+                -e 's#/usr/lib/channelview#/usr/lib/trunkvista#g' -e '/^[[:space:]]*#/ s/channelview/trunkvista/g' "$old_def" > /etc/default/trunkvista.migrating
+            chmod 0644 /etc/default/trunkvista.migrating
+            mv /etc/default/trunkvista.migrating /etc/default/trunkvista
+            moved="$moved /etc/default/trunkvista"
+        fi
+        rm -f "$old_def"
+    fi
+    if command -v deb-systemd-helper >/dev/null 2>&1; then
+        if [ -e "/etc/systemd/system/timers.target.wants/$OLD-update.timer" ] || [ -e "/var/lib/systemd/deb-systemd-helper-enabled/timers.target.wants/$OLD-update.timer" ]; then
+            enable_timer=1            # the nightly update check was on: it stays on, under the new name
+        fi
+        deb-systemd-helper unmask "$OLD.service" "$OLD-update.timer" >/dev/null 2>&1 || true
+        deb-systemd-helper purge "$OLD.service" "$OLD-update.timer" >/dev/null 2>&1 || true
+    fi
+    if getent passwd "$OLD" >/dev/null 2>&1; then       # nothing is owned by it any more
+        deluser --system --quiet "$OLD" >/dev/null 2>&1 || true
+    fi
+    if getent group "$OLD" >/dev/null 2>&1; then
+        delgroup --system --quiet "$OLD" >/dev/null 2>&1 || true
+    fi
+    note "TrunkVista was called ChannelView before. What an installation of the old name left behind was moved over:${moved:- nothing}.
+  The program, the commands (trunkvista-user, trunkvista-update, trunkvista-cert) and the service are called trunkvista now; everybody is asked to sign in again once.
+  Dispose of the leftover package record with:  sudo apt purge channelview"
+}
 
 # An answer from debconf; "" when the question is unknown (dpkg -i without debconf's pre-configuration): never the error text.
 answer() { if db_get "$1"; then ANSWER="$RET"; else ANSWER=""; fi; }
@@ -15,18 +76,18 @@ has_accounts() { [ -s "$DATA/users.json" ] && grep -q '"username"' "$DATA/users.
 create_admin() {
     has_accounts && return 0
     name=""; pw=""
-    answer channelview/admin_user;     name="$ANSWER"
-    answer channelview/admin_password; pw="$ANSWER"
-    db_reset channelview/admin_password || true            # the password is not kept in the debconf database
-    db_reset channelview/admin_password_again || true
+    answer trunkvista/admin_user;     name="$ANSWER"
+    answer trunkvista/admin_password; pw="$ANSWER"
+    db_reset trunkvista/admin_password || true            # the password is not kept in the debconf database
+    db_reset trunkvista/admin_password_again || true
     [ -n "$name" ] || name=admin
     if [ -n "$pw" ]; then
         if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin >/dev/null 2>"$DATA/.user-add.err"; then
-            created_note="The administrator account '$name' was created with the password you gave."
+            note "The administrator account '$name' was created with the password you gave."
             rm -f "$DATA/.user-add.err"
             return 0
         fi
-        echo "channelview: could not use that account: $(cat "$DATA/.user-add.err" 2>/dev/null) - making a random password instead." >&2
+        echo "trunkvista: could not use that account: $(cat "$DATA/.user-add.err" 2>/dev/null) - making a random password instead." >&2
         rm -f "$DATA/.user-add.err"
     fi
     case "$name" in *[!A-Za-z0-9._@-]*|"") name=admin ;; esac
@@ -34,15 +95,14 @@ create_admin() {
     if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin --must-change >/dev/null; then
         ( umask 077; printf 'username: %s\npassword: %s\n' "$name" "$pw" > "$DATA/initial-admin-password" )
         chown "$SVC_USER:$SVC_USER" "$DATA/initial-admin-password"
-        created_note="The administrator account '$name' was created with a random password, which you must change at the first sign-in.
+        note "The administrator account '$name' was created with a random password, which you must change at the first sign-in.
   It is in $DATA/initial-admin-password (root only) until then:  sudo cat $DATA/initial-admin-password"
         if [ -t 2 ]; then
-            created_note="$created_note
-  user name: $name
+            note "  user name: $name
   password:  $pw      (apt keeps a log of this screen: change the password now)"
         fi
     else
-        created_note="WARNING: no account could be created, so nobody can sign in.  Create one:  sudo channelview-user add NAME --role admin"
+        note "WARNING: no account could be created, so nobody can sign in.  Create one:  sudo trunkvista-user add NAME --role admin"
     fi
 }
 
@@ -50,6 +110,7 @@ if [ "$1" = "configure" ]; then
     if ! getent passwd "$SVC_USER" >/dev/null 2>&1; then
         adduser --system --group --quiet --home "$DATA" --no-create-home --shell /usr/sbin/nologin --gecos "Zabbix dashboard" "$SVC_USER"
     fi
+    migrate_old_install
     # systemd's StateDirectory= makes this too when the service starts; this covers manual runs and systems without systemd.
     install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
     create_admin
@@ -59,38 +120,43 @@ fi
 
 if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
     if command -v deb-systemd-helper >/dev/null 2>&1; then
-        deb-systemd-helper unmask 'channelview.service' >/dev/null || true
+        deb-systemd-helper unmask 'trunkvista.service' >/dev/null || true
         # was-enabled is true on a first installation (the service gets enabled) and stays false when the administrator disabled it.
-        if deb-systemd-helper --quiet was-enabled 'channelview.service'; then
-            deb-systemd-helper enable 'channelview.service' >/dev/null || true
+        if deb-systemd-helper --quiet was-enabled 'trunkvista.service'; then
+            deb-systemd-helper enable 'trunkvista.service' >/dev/null || true
         else
-            deb-systemd-helper update-state 'channelview.service' >/dev/null || true
+            deb-systemd-helper update-state 'trunkvista.service' >/dev/null || true
         fi
         # The nightly update check is NOT switched on: it installs software unattended, so the administrator chooses.
-        deb-systemd-helper update-state 'channelview-update.timer' >/dev/null || true
+        if [ -n "$enable_timer" ]; then
+            deb-systemd-helper enable 'trunkvista-update.timer' >/dev/null || true
+        else
+            deb-systemd-helper update-state 'trunkvista-update.timer' >/dev/null || true
+        fi
     fi
     if [ -d /run/systemd/system ]; then
         systemctl --system daemon-reload >/dev/null || true
         if command -v deb-systemd-invoke >/dev/null 2>&1; then
             if [ -n "$2" ]; then action=restart; else action=start; fi      # $2 = the previous version: this is an upgrade
-            deb-systemd-invoke "$action" 'channelview.service' >/dev/null || true
+            deb-systemd-invoke "$action" 'trunkvista.service' >/dev/null || true
+            if [ -n "$enable_timer" ]; then deb-systemd-invoke start 'trunkvista-update.timer' >/dev/null || true; fi
         fi
     fi
 fi
 
 if [ "$1" = "configure" ] && [ -n "$created_note" ]; then
-    printf '\nchannelview: %s\n' "$created_note"
+    printf '\ntrunkvista: %s\n' "$created_note"
 fi
 if [ "$1" = "configure" ] && [ -z "$2" ]; then
     cat <<MSG
 
-channelview is installed and running on http://127.0.0.1:8088/ (this machine only). Everybody signs in.
+trunkvista is installed and running on http://127.0.0.1:8088/ (this machine only). Everybody signs in.
   * Open that page, sign in as the administrator, click the status chip at the top and add your Zabbix server (URL and API token).
-  * Accounts:  the account menu in the page (administrators), or  sudo channelview-user --help
+  * Accounts:  the account menu in the page (administrators), or  sudo trunkvista-user --help
     Wall displays: an account with --idle never (a viewer that is never signed out).
-  * Other PCs / wall displays: set CHANNELVIEW_HOST=0.0.0.0 in /etc/default/channelview, then: sudo systemctl restart channelview
-    and switch on HTTPS first (passwords!):  sudo channelview-cert   and follow what it prints
-  * Updates from GitHub:  sudo channelview-update      Logs:  journalctl -u channelview
+  * Other PCs / wall displays: set TRUNKVISTA_HOST=0.0.0.0 in /etc/default/trunkvista, then: sudo systemctl restart trunkvista
+    and switch on HTTPS first (passwords!):  sudo trunkvista-cert   and follow what it prints
+  * Updates from GitHub:  sudo trunkvista-update      Logs:  journalctl -u trunkvista
 MSG
 fi
 

@@ -1,8 +1,8 @@
-"""A tiny stand-in for the GitHub releases API, for testing channelview-update without the internet.
+"""A tiny stand-in for the GitHub releases API, for testing trunkvista-update without the internet.
 
-In a test:        gh = MockGitHub("owner/name", token=None); base = gh.start(); gh.add_release("v1.0.1", {"channelview_1.0.1_all.deb": b"..."}); ...; gh.stop()
+In a test:        gh = MockGitHub("owner/name", token=None); base = gh.start(); gh.add_release("v1.0.1", {"trunkvista_1.0.1_all.deb": b"..."}); ...; gh.stop()
 On the command line (used by tests/e2e_debian.sh):
-    python3 tests/mock_github.py --repo owner/name --port 8765 --release v1.0.1:dist/channelview_1.0.1_all.deb,dist/SHA256SUMS
+    python3 tests/mock_github.py --repo owner/name --port 8765 --release v1.0.1:dist/trunkvista_1.0.1_all.deb,dist/SHA256SUMS
 It answers the three calls the updater makes (releases/latest, releases?per_page, releases/tags/<tag>), serves the files through a redirect to a
 second host name (like github.com -> objects.githubusercontent.com), renames asset files the way GitHub does (a ~ becomes a .), and remembers
 which requests carried an Authorization header."""

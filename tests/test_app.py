@@ -1,4 +1,4 @@
-"""Basic checks of channelview.py itself: --version, demo mode answers, --init, and the persistent edit token (--token-file) that the
+"""Basic checks of trunkvista.py itself: --version, demo mode answers, --init, and the persistent edit token (--token-file) that the
 Debian service uses.   Run:  python3 -m unittest discover -s tests -v      (standard library only; starts the server on free local ports)"""
 import json
 import os
@@ -15,7 +15,7 @@ import urllib.request
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-APP = ROOT / "channelview.py"
+APP = ROOT / "trunkvista.py"
 
 
 def app_version():
@@ -78,7 +78,7 @@ class Server:
 class VersionAndDemo(unittest.TestCase):
     def test_version_flag(self):
         out = subprocess.run([sys.executable, str(APP), "--version"], capture_output=True, text=True, check=True).stdout.strip()
-        self.assertEqual(out, "channelview.py " + app_version())
+        self.assertEqual(out, "trunkvista.py " + app_version())
         self.assertRegex(app_version(), r"^\d+\.\d+\.\d+([-.~][0-9A-Za-z.]+)?$", "VERSION must look like 1.2.3 or 1.2.3-rc.1")
 
     def test_demo_answers(self):
@@ -94,7 +94,7 @@ class VersionAndDemo(unittest.TestCase):
             code, body = s.get(f"/api/view?tab={tab}&every=30&cid=cunit")
             self.assertEqual(code, 200)
             self.assertIsInstance(json.loads(body), dict)
-            self.assertIn(f"ChannelView {app_version()} running", s.text())
+            self.assertIn(f"TrunkVista {app_version()} running", s.text())
 
     def test_logo_in_header_and_tab_icon(self):
         """The ring logo is inline in the header and the tab icons are data: URIs (the page policy only allows img-src data:)."""
@@ -103,8 +103,8 @@ class VersionAndDemo(unittest.TestCase):
         import xml.etree.ElementTree as ET
         with tempfile.TemporaryDirectory() as tmp, Server(tmp, "--demo", "--data-dir", tmp + "/d") as s:
             html = s.get("/")[1].decode()
-        m = re.search(r'<span class="logo">(<svg .*?</svg>)ChannelView</span>', html, re.S)
-        self.assertTrue(m, "header must carry the inline mark followed by the name, written ChannelView")
+        m = re.search(r'<span class="logo">(<svg .*?</svg>)TrunkVista</span>', html, re.S)
+        self.assertTrue(m, "header must carry the inline mark followed by the name, written TrunkVista")
         def tags(root, name):   # inline SVG in HTML has no xmlns, the data: URI one has
             return [e for e in root.iter() if e.tag.split("}")[-1] == name]
         header = ET.fromstring(m.group(1))
@@ -156,9 +156,9 @@ class VersionAndDemo(unittest.TestCase):
 
 
 def load_app_module():
-    """channelview.py as a module, to test its classes directly (the file only starts a server when run as a program)."""
+    """trunkvista.py as a module, to test its classes directly (the file only starts a server when run as a program)."""
     import importlib.util
-    spec = importlib.util.spec_from_file_location("channelview_under_test", APP)
+    spec = importlib.util.spec_from_file_location("trunkvista_under_test", APP)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod
     spec.loader.exec_module(mod)
@@ -309,9 +309,9 @@ class Theme(unittest.TestCase):
 
     def test_theme_script_runs_before_the_page_and_the_button_is_in_the_header(self):
         head = self.page[: self.page.index("<style>")]
-        self.assertIn("var CVT = (function", head, "must run in <head>, before the first paint, or the page flashes the wrong palette")
+        self.assertIn("var TVT = (function", head, "must run in <head>, before the first paint, or the page flashes the wrong palette")
         self.assertIn('setAttribute("data-theme"', head)
-        self.assertIn('"channelview-theme"', head)
+        self.assertIn('"trunkvista-theme"', head)
         self.assertIn('<button id="btn-theme"', self.page)
         self.assertRegex(self.page, r'k === "t"\) \$\("#btn-theme"\)\.click\(\)', "T switches the theme")
         self.assertIn('mode: "dark"', head, "dark stays the default: a wall display must not turn white by itself when the dashboard is updated")
@@ -364,6 +364,63 @@ class EditTokenFile(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:       # without --token-file the one-off token IS printed (that is how it is found)
             with Server(tmp, "--host", "0.0.0.0", "--no-login", "--data-dir", tmp + "/d") as s:
                 self.assertRegex(s.text(), r"\?token=[A-Za-z0-9_-]{16,}")
+
+
+class OldName(unittest.TestCase):
+    """The program was called ChannelView before: what people have (environment variables, ~/.channelview, a browser's stored settings) keeps working."""
+
+    def run_cli(self, home, *args, env=None):
+        e = {k: v for k, v in os.environ.items() if not k.startswith(("TRUNKVISTA_", "CHANNELVIEW_"))}
+        e["HOME"] = str(home)
+        e.update(env or {})
+        return subprocess.run([sys.executable, str(APP), "user", *args], capture_output=True, text=True, timeout=60, env=e)
+
+    def test_the_old_data_folder_is_renamed_once(self):
+        with tempfile.TemporaryDirectory() as home:
+            old = Path(home, ".channelview")
+            old.mkdir()
+            (old / "marker").write_text("kept")
+            r = self.run_cli(home, "list")
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertFalse(old.exists())
+            self.assertEqual(Path(home, ".trunkvista", "marker").read_text(), "kept")
+            self.assertIn("Renamed", r.stderr)
+            self.assertNotIn("Renamed", self.run_cli(home, "list").stderr, "only the first time")
+
+    def test_nothing_is_renamed_when_the_new_folder_exists_or_a_data_dir_is_given(self):
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, ".channelview").mkdir()
+            Path(home, ".trunkvista").mkdir()
+            self.assertEqual(self.run_cli(home, "list").returncode, 0)
+            self.assertTrue(Path(home, ".channelview").is_dir(), "both exist: the old one is left alone")
+        with tempfile.TemporaryDirectory() as home:
+            Path(home, ".channelview").mkdir()
+            self.assertEqual(self.run_cli(home, "--data-dir", str(Path(home, "elsewhere")), "list").returncode, 0)
+            self.assertTrue(Path(home, ".channelview").is_dir(), "an explicit --data-dir never touches the old folder")
+            self.assertFalse(Path(home, ".trunkvista").exists())
+
+    def test_the_old_environment_variable_still_names_the_data_folder_and_the_new_one_wins(self):
+        with tempfile.TemporaryDirectory() as home:
+            a, b = Path(home, "a"), Path(home, "b")
+            r = subprocess.run([sys.executable, str(APP), "user", "add", "x", "--password-stdin"], input="a long enough one\n", capture_output=True, text=True,
+                               env={**os.environ, "HOME": home, "CHANNELVIEW_DATA": str(a)})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((a / "users.json").exists())
+            r = subprocess.run([sys.executable, str(APP), "user", "add", "y", "--password-stdin"], input="a long enough one\n", capture_output=True, text=True,
+                               env={**os.environ, "HOME": home, "CHANNELVIEW_DATA": str(a), "TRUNKVISTA_DATA": str(b)})
+            self.assertEqual(r.returncode, 0, r.stderr)
+            self.assertTrue((b / "users.json").exists(), "TRUNKVISTA_DATA wins over CHANNELVIEW_DATA")
+
+    def test_the_page_moves_what_the_browser_remembered_to_the_new_keys(self):
+        m = load_app_module()
+        for page in (m.PAGE, m.login_page()):
+            head = page[: page.index("</head>")]
+            self.assertIn('k.startsWith("channelview-")', head, "runs in <head>, before anything reads a stored setting")
+            self.assertIn('"trunkvista-" + k.slice(12)', head)
+            self.assertLess(head.index('startsWith("channelview-")'), head.index("var TVT = (function"), "before the theme script reads its key")
+        self.assertEqual(len("channelview-"), 12)
+        stale = [k for k in re.findall(r'(?:getItem|setItem|removeItem)\("([A-Za-z-]+)', m.PAGE) if k.startswith("channelview")]
+        self.assertEqual(stale, [], "the page itself only uses the new keys")
 
 
 if __name__ == "__main__":
