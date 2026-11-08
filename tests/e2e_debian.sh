@@ -1,10 +1,11 @@
 #!/bin/bash
 # End-to-end test of the Debian package:  sudo tests/e2e_debian.sh [path/to/channelview_X_all.deb]      (default: dist/channelview_*_all.deb)
 #
-#   install  ->  service user, folders, files, the service answers, the edit token is stored owner-only
-#   upgrade  ->  a newer package keeps your edited /etc/default/channelview, the data and the edit token, and restarts the service
+#   install  ->  service user, folders, files, the service answers, the first account is made, nothing works without signing in
+#   upgrade  ->  a newer package keeps your edited /etc/default/channelview, the data, the accounts and the signed-in sessions, and restarts the service
 #   update   ->  channelview-update installs a newer release from a local fake GitHub (good and tampered ones)
 #   remove / reinstall / purge  ->  what stays and what goes
+#   first account  ->  with answers preseeded in debconf, and when a version without accounts is upgraded
 #
 # WARNING: this really installs and purges the package and deletes /var/lib/channelview and the channelview user afterwards.
 # Run it in a CI runner, a throw-away container or a VM - not on the machine that runs your dashboard.
@@ -72,13 +73,17 @@ import ctypes, os, sys
 try: ctypes.CDLL(None).prctl(65, 1, 0, 0, 0)      # PR_SET_MDWE: what MemoryDenyWriteExecute=yes does in the unit
 except Exception: pass
 os.execv(sys.argv[1], sys.argv[1:])' /usr/lib/channelview/channelview.py --no-browser --host "${host:-127.0.0.1}" --port "${port:-8088}" \
-        --data-dir "$DATA" --token-file "$DATA/edit_token" >"$manual_log" 2>&1 &
+        --data-dir "$DATA" --require-login >"$manual_log" 2>&1 &
     sleep 0.3
 }
 server_up() { if $have_systemd; then systemctl restart channelview; else manual_start; fi; }
 wait_http() { local _; for _ in $(seq 1 60); do curl -fsS -o /dev/null "http://127.0.0.1:$1/" 2>/dev/null && return 0; sleep 0.5; done; return 1; }
 server_pid() { if $have_systemd; then systemctl show -p MainPID --value channelview; else pgrep -u "$SVC_USER" -f channelview.py | head -n1; fi; }
 server_log() { if $have_systemd; then journalctl -u channelview --no-pager -o cat 2>/dev/null; else cat "$manual_log"; fi; }
+code() { curl -s -o /dev/null -w '%{http_code}' "$@"; }                  # code [curl options] URL  ->  the HTTP status
+signin() { code -c "$3" -X POST "${4:-http://127.0.0.1:8088}/api/login" -H 'Content-Type: application/json' -d "{\"username\":\"$1\",\"password\":\"$2\"}"; }   # signin USER PASSWORD JAR [BASE]
+post_json() { code -b "$2" -c "$2" -X POST "$1" -H 'Content-Type: application/json' -H "X-Edit-Token: $3" -d "$4"; }                                      # post_json URL JAR TOKEN JSON
+page_token() { curl -s -b "$1" "${2:-http://127.0.0.1:8088}/" | sed -n 's/.*const EDIT_TOKEN = "\([^"]*\)".*/\1/p'; }                                       # the session's request token
 apt_install() { apt-get install -y --no-install-recommends -o Dpkg::Options::=--force-confold "$@" >"$work/apt.log" 2>&1 || { cat "$work/apt.log"; return 1; }; }
 
 # ============================================================== install
@@ -105,11 +110,30 @@ fi
 wait_http 8088 && ok "answers on the default port 8088" || { bad "does not answer on 8088"; server_log | tail -5; }
 check "it runs as the service user" fixed "ps -o user:32= -p $(server_pid) | tr -d ' '" "$SVC_USER"
 check "GET / returns the page" bash -c "curl -fsS http://127.0.0.1:8088/ | grep -q '<title>'"
-check "/api/layout returns the layout" bash -c "curl -fsS http://127.0.0.1:8088/api/layout | python3 -c 'import json,sys; assert json.load(sys.stdin)[\"layout\"][\"tabs\"]'"
-check "edit token stored, owner-only, owned by the service user" fixed "stat -c '%U %a' $DATA/edit_token" "$SVC_USER 600"
-token1="$(cat "$DATA/edit_token" 2>/dev/null)"
-check "the stored token unlocks editing, no token does not" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' -H 'X-Edit-Token: $token1' http://127.0.0.1:8088/api/connections)\" = 200 ] && [ \"\$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8088/api/connections)\" = 403 ]"
-server_log | grep -qF "$token1" && bad "the edit token is in the log" || ok "the edit token is not in the log"
+check "the page asks for a sign-in and shows nothing of the dashboard" bash -c "curl -fsS http://127.0.0.1:8088/ | grep -q 'id=\"lf\"' && ! curl -fsS http://127.0.0.1:8088/ | grep -q 'id=\"tabs\"'"
+check "/api/layout needs a sign-in (401)" fixed "code http://127.0.0.1:8088/api/layout" "401"
+check "accounts file stored owner-only, owned by the service user" fixed "stat -c '%U %a' $DATA/users.json" "$SVC_USER 600"
+check "no edit token is made any more" bash -c "! test -e $DATA/edit_token"
+check "the random first password is kept, owner-only" fixed "stat -c '%U %a' $DATA/initial-admin-password" "$SVC_USER 600"
+adm_user="$(sed -n 's/^username: //p' "$DATA/initial-admin-password")"; adm_pw="$(sed -n 's/^password: //p' "$DATA/initial-admin-password")"
+check "the first account is called admin, the password is 20 characters" bash -c "[ '$adm_user' = admin ] && [ \"\$(printf %s '$adm_pw' | wc -c)\" = 20 ]"
+check "the hash in users.json is not the password" bash -c "! grep -qF '$adm_pw' $DATA/users.json && grep -q 'pbkdf2_sha256' $DATA/users.json"
+check "a wrong password is refused (401)" fixed "signin admin wrong-password-here $work/jar0" "401"
+check "the first password signs in (200)" fixed "signin admin '$adm_pw' $work/jar1" "200"
+check "... but it has to be changed first: data calls answer 403" fixed "code -b $work/jar1 http://127.0.0.1:8088/api/connections" "403"
+csrf="$(page_token "$work/jar1")"
+new_pw="a new administrator password"
+st="$(post_json http://127.0.0.1:8088/api/account/password "$work/jar1" "$csrf" "{\"current\":\"$adm_pw\",\"new\":\"$new_pw\"}")"
+[ "$st" = 200 ] && ok "choosing a new password works" || bad "choosing a new password gave $st"
+check "the temporary-password file is gone" bash -c "! test -e $DATA/initial-admin-password"
+check "the browser stays signed in, and an administrator may edit (200)" fixed "code -b $work/jar1 http://127.0.0.1:8088/api/connections" "200"
+check "the temporary password does not work any more (401)" fixed "signin admin '$adm_pw' $work/jar9" "401"
+check "no sign-in cookie is sent without signing in (a request without the cookie: 401)" fixed "code http://127.0.0.1:8088/api/connections" "401"
+check "a viewer account made with channelview-user (never signs out) can look but not edit" bash -c "printf 'viewer password 1' | channelview-user add tv --role viewer --idle never --password-stdin >/dev/null && [ \"\$(curl -s -o /dev/null -w '%{http_code}' -c $work/jar_tv -X POST http://127.0.0.1:8088/api/login -H 'Content-Type: application/json' -d '{\"username\":\"tv\",\"password\":\"viewer password 1\"}')\" = 200 ] && [ \"\$(curl -s -o /dev/null -w '%{http_code}' -b $work/jar_tv http://127.0.0.1:8088/api/layout)\" = 200 ] && [ \"\$(curl -s -o /dev/null -w '%{http_code}' -b $work/jar_tv http://127.0.0.1:8088/api/connections)\" = 403 ]"
+check "channelview-user list shows both accounts" bash -c "channelview-user list | grep -q '^admin ' && channelview-user list | grep -q '^tv .*never'"
+server_log | grep -qF "$adm_pw" && bad "the temporary password is in the log" || ok "the temporary password is not in the log"
+server_log | grep -qF "$new_pw" && bad "the new password is in the log" || ok "the new password is not in the log"
+server_log | grep -q "\[accounts\] sign-in user=admin" && ok "sign-ins are logged (user and address, never the password)" || bad "no sign-in line in the log"
 check "files written by the service belong to it (nothing owned by root in the data folder)" bash -c "! find $DATA -user root | grep -q ."
 
 # ============================================================== administrator's changes, then an upgrade
@@ -118,6 +142,7 @@ echo "keep me" > "$DATA/marker"; chown "$SVC_USER:$SVC_USER" "$DATA/marker"
 sed -i "s/^CHANNELVIEW_PORT=.*/CHANNELVIEW_PORT=$PORT/; s#^CHANNELVIEW_UPDATE_REPO=.*#CHANNELVIEW_UPDATE_REPO=test/zbx#" "$DEFAULTS"
 server_up; wait_http $PORT && ok "after editing /etc/default/channelview and restarting, it listens on port $PORT" || bad "does not answer on $PORT"
 pid_before="$(server_pid)"
+users_before="$(sha256sum < "$DATA/users.json")"
 
 build_version() {      # build_version VERSION OUTDIR : the repository with that VERSION, built with the same repository name as the installed package
     local v="$1" src="$work/src-$1"
@@ -131,7 +156,7 @@ apt_install "$work/rel-$v2/channelview_${v2}_all.deb" && ok "upgrade to $v2 succ
 check "version is now $v2" fixed "dpkg-query -W -f='\${Version}' channelview" "$v2"
 check "your edited /etc/default/channelview is kept (port $PORT, repository test/zbx)" bash -c "grep -qx 'CHANNELVIEW_PORT=$PORT' $DEFAULTS && grep -qx 'CHANNELVIEW_UPDATE_REPO=test/zbx' $DEFAULTS"
 check "your data is kept" fixed "cat $DATA/marker" "keep me"
-check "the edit token is unchanged" fixed "cat $DATA/edit_token" "$token1"
+check "your accounts are unchanged" fixed "sha256sum < $DATA/users.json" "$users_before"
 if $have_systemd; then
     wait_http $PORT; pid_after="$(server_pid)"
     [ -n "$pid_after" ] && [ "$pid_after" != "$pid_before" ] && ok "the upgrade restarted the service (new process)" || bad "service was not restarted by the upgrade ($pid_before -> $pid_after)"
@@ -139,6 +164,7 @@ else
     manual_start
 fi
 wait_http $PORT && ok "answers on port $PORT with the new version" || bad "does not answer after the upgrade"
+check "a browser that was signed in before the upgrade still is (sessions survive the restart)" fixed "code -b $work/jar1 http://127.0.0.1:$PORT/api/connections" "200"
 server_log | grep -q "ChannelView $v2 running" && ok "the running server reports $v2" || bad "server log does not show version $v2"
 
 # ============================================================== update from (fake) GitHub
@@ -159,11 +185,12 @@ upd --check --quiet; rc=$?; [ $rc = 10 ] && ok "--check: exit status 10 (update 
 out="$(upd --yes 2>&1)"; rc=$?
 [ $rc = 0 ] && ok "channelview-update --yes succeeds" || { bad "update failed ($rc)"; echo "$out"; }
 check "version is now $v3" fixed "dpkg-query -W -f='\${Version}' channelview" "$v3"
-check "the update kept the edited settings and the data" bash -c "grep -qx 'CHANNELVIEW_PORT=$PORT' $DEFAULTS && [ \"\$(cat $DATA/marker)\" = 'keep me' ] && [ \"\$(cat $DATA/edit_token)\" = '$token1' ]"
+check "the update kept the edited settings, the data and the accounts" bash -c "grep -qx 'CHANNELVIEW_PORT=$PORT' $DEFAULTS && [ \"\$(cat $DATA/marker)\" = 'keep me' ] && [ \"\$(sha256sum < $DATA/users.json)\" = '$users_before' ]"
 check "its download folder was cleaned up" bash -c "! ls /var/cache/channelview-update/* 2>/dev/null | grep -q ."
 upd --check --quiet; rc=$?; [ $rc = 0 ] && ok "--check: up to date afterwards (exit status 0)" || bad "--check afterwards gave $rc"
 if ! $have_systemd; then manual_start; fi
 wait_http $PORT && ok "the server answers after the update" || bad "no answer after the update"
+check "... and the signed-in browser is still signed in" fixed "code -b $work/jar1 http://127.0.0.1:$PORT/api/connections" "200"
 
 v4="$(bump "$v3")"
 if build_version "$v4" "$work/rel-$v4"; then
@@ -193,11 +220,12 @@ printf 'CHANNELVIEW_TLS_CERT=%s\nCHANNELVIEW_TLS_KEY=%s\n' "$TLS/server.crt" "$T
 server_up
 wait_https && ok "HTTPS answers, certificate verified against server.crt" || { bad "no HTTPS answer"; server_log | tail -5; }
 check "the page comes over HTTPS" bash -c "curl -fsS --cacert $TLS/server.crt https://127.0.0.1:$PORT/ | grep -q '<title>'"
-check "the edit token works over HTTPS" bash -c "[ \"\$(curl -s -o /dev/null -w '%{http_code}' --cacert $TLS/server.crt -H 'X-Edit-Token: $token1' https://127.0.0.1:$PORT/api/connections)\" = 200 ]"
+check "signing in works over HTTPS" fixed "curl -s -o /dev/null -w '%{http_code}' --cacert $TLS/server.crt -c $work/jar_tls -X POST https://127.0.0.1:$PORT/api/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"$new_pw\"}'" "200"
+check "... and the sign-in cookie is then marked Secure and HttpOnly" bash -c "grep cv_session $work/jar_tls | grep -q '^#HttpOnly_' && [ \"\$(awk '\$6==\"cv_session\"{print \$4}' $work/jar_tls)\" = TRUE ]"
 check "plain http on the HTTPS port is redirected (307)" fixed "curl -s -o /dev/null -w '%{http_code} %{redirect_url}' http://127.0.0.1:$PORT/x" "307 https://127.0.0.1:$PORT/x"
 check "TLS 1.2 handshake works" bash -c "openssl s_client -connect 127.0.0.1:$PORT -tls1_2 </dev/null 2>&1 | grep -q 'Protocol *: TLSv1.2'"
 server_log | grep -q "running at https://127.0.0.1:$PORT/" && ok "the log shows the https address" || bad "log does not show https"
-server_log | grep -qF "$token1" && bad "the edit token is in the log" || ok "the edit token is still not in the log"
+server_log | grep -qF "$new_pw" && bad "the password is in the log" || ok "the password is still not in the log"
 # a renewed certificate is used without a restart
 fp_before="$(cert_fp)"; pid_before_renew="$(server_pid)"
 channelview-cert --force --name localhost --ip 127.0.0.1 >/dev/null 2>&1 && ok "channelview-cert --force renews it" || bad "renewal failed"
@@ -207,15 +235,18 @@ for _ in $(seq 1 40); do fp_after="$(cert_fp)"; [ "$fp_after" != "$fp_before" ] 
 [ "$(server_pid)" = "$pid_before_renew" ] && ok "... by the same process" || bad "the server process changed"
 # custom.css
 echo ':root{--accent:#ff00aa}' > "$DATA/custom.css"
-check "custom.css is added to the page" bash -c "curl -fsS --cacert $TLS/server.crt https://127.0.0.1:$PORT/ | grep -q 'id=\"custom-css\".*' && curl -fsS --cacert $TLS/server.crt https://127.0.0.1:$PORT/ | grep -q -- '--accent:#ff00aa'"
+https_get() { curl -fsS --cacert "$TLS/server.crt" "$@" "https://127.0.0.1:$PORT/"; }                     # https_get [curl options]
+check "custom.css is added to the page" bash -c "$(declare -f https_get); TLS=$TLS; PORT=$PORT; https_get -b $work/jar_tls | grep -q 'id=\"custom-css\"' && https_get -b $work/jar_tls | grep -q -- '--accent:#ff00aa'"
+check "... and to the sign-in page" bash -c "$(declare -f https_get); TLS=$TLS; PORT=$PORT; https_get | grep -q 'id=\"custom-css\"'"
 rm -f "$DATA/custom.css"
-check "... and gone again when the file is" bash -c "! curl -fsS --cacert $TLS/server.crt https://127.0.0.1:$PORT/ | grep -q custom-css"
+check "... and gone again when the file is" bash -c "$(declare -f https_get); TLS=$TLS; PORT=$PORT; https_get -b $work/jar_tls | grep -q 'EDIT_TOKEN' && ! https_get -b $work/jar_tls | grep -q custom-css"
 cp "$work/defaults.before-tls" "$DEFAULTS"
 server_up
 wait_http $PORT && ok "back on plain HTTP after removing the two settings" || bad "no answer on plain HTTP"
 
 # ============================================================== remove, reinstall, purge
 echo "== remove / reinstall / purge"
+users_before="$(sha256sum < "$DATA/users.json")"
 $have_systemd || manual_stop
 apt-get remove -y channelview >"$work/apt.log" 2>&1 && ok "apt-get remove succeeds" || { bad "remove failed"; cat "$work/apt.log"; }
 check "program files are gone" bash -c "! test -e /usr/lib/channelview && ! test -e /usr/bin/channelview && ! test -e /usr/bin/channelview-update && ! test -e /lib/systemd/system/channelview.service"
@@ -227,7 +258,7 @@ fi
 apt_install "$deb" && ok "reinstall succeeds" || bad "reinstall failed"
 check "reinstall: edited settings kept (port $PORT)" bash -c "grep -qx 'CHANNELVIEW_PORT=$PORT' $DEFAULTS"
 check "reinstall: the service is enabled again" test -L /etc/systemd/system/multi-user.target.wants/channelview.service
-check "reinstall: data and edit token kept" bash -c "[ \"\$(cat $DATA/edit_token)\" = '$token1' ] && test -f $DATA/marker"
+check "reinstall: data and accounts kept, and no second account was made" bash -c "[ \"\$(sha256sum < $DATA/users.json)\" = '$users_before' ] && test -f $DATA/marker && ! test -e $DATA/initial-admin-password"
 if $have_systemd; then wait_http $PORT && ok "reinstall: the service is running" || bad "reinstall: no answer"; else manual_start; wait_http $PORT && ok "reinstall: server answers" || bad "reinstall: no answer"; manual_stop; fi
 out="$(apt-get purge -y channelview 2>&1)"; rc=$?
 [ $rc = 0 ] && ok "apt-get purge succeeds" || { bad "purge failed"; echo "$out"; }
@@ -235,6 +266,36 @@ check "purge removes /etc/default/channelview" bash -c "! test -e $DEFAULTS"
 check "purge removes the systemd state (no leftover symlink or mask)" bash -c "! test -e /etc/systemd/system/channelview.service && ! test -e /etc/systemd/system/multi-user.target.wants/channelview.service"
 check "purge keeps the data and says how to remove it" bash -c "test -f $DATA/marker && echo '$out' | grep -q 'rm -rf /var/lib/channelview'"
 check "purge keeps the HTTPS certificate and says so" bash -c "test -f $TLS/server.key && echo '$out' | grep -q 'rm -rf /etc/channelview'"
+
+# ============================================================== the first account on the other paths
+echo "== first account: preseeded answers, and an upgrade from a version that had no accounts"
+rm -rf "$DATA"; deluser --system "$SVC_USER" >/dev/null 2>&1; delgroup --system "$SVC_USER" >/dev/null 2>&1
+printf '%s\n' "channelview channelview/admin_user string alice" "channelview channelview/admin_password password alice has a long password" \
+    "channelview channelview/admin_password_again password alice has a long password" | debconf-set-selections
+apt_install "$deb" && ok "install with preseeded answers succeeds" || bad "install failed"
+check "the account alice exists and is the only one" bash -c "[ \"\$(channelview-user list | awk '{print \$1}')\" = alice ]"
+check "... as an administrator, without a temporary password file" bash -c "channelview-user list | grep -q '^alice  *admin' && ! test -e $DATA/initial-admin-password"
+check "the answers' password is not kept in the debconf database" bash -c "! grep -rqs 'alice has a long password' /var/cache/debconf /var/lib/debconf"
+if ! $have_systemd; then manual_start; fi
+wait_http 8088 && ok "the server answers" || bad "no answer"
+check "alice signs in with the preseeded password (200)" fixed "signin alice 'alice has a long password' $work/jar_alice" "200"
+check "... and is not asked to change it" bash -c "curl -s -b $work/jar_alice http://127.0.0.1:8088/api/layout | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d[\"can_edit\"] and not d[\"user\"][\"must_change\"]'"
+$have_systemd || manual_stop
+rm -f "$DATA/users.json" "$DATA/sessions.json"; echo "oldtokenoldtokenoldtoken" > "$DATA/edit_token"; chown "$SVC_USER:$SVC_USER" "$DATA/edit_token"
+apt_install --reinstall "$deb" && ok "reinstalling over a data folder without accounts (a version from before sign-in) succeeds" || bad "reinstall failed"
+check "an account is made again, with a random password that has to be changed" bash -c "[ \"\$(channelview-user list | awk '{print \$1}')\" = alice ] && channelview-user list | grep -q 'must change password' && test -f $DATA/initial-admin-password"
+check "the old edit token file is removed" bash -c "! test -e $DATA/edit_token"
+if ! $have_systemd; then manual_start; fi
+wait_http 8088 && ok "the server answers" || bad "no answer"
+legacy_pw="$(sed -n 's/^password: //p' "$DATA/initial-admin-password")"
+check "the random password signs in" fixed "signin alice '$legacy_pw' $work/jar_legacy" "200"
+# an install that cannot make an account must not leave an open dashboard: the service starts with --require-login
+$have_systemd || manual_stop
+rm -f "$DATA/users.json" "$DATA/initial-admin-password"
+if ! $have_systemd; then manual_start; else systemctl restart channelview; fi
+wait_http 8088 && ok "without any account the server still answers ..." || bad "no answer"
+check "... with the sign-in page, never an open dashboard (401)" fixed "code http://127.0.0.1:8088/api/layout" "401"
+check "... which says how to make an account" bash -c "curl -fsS http://127.0.0.1:8088/ | grep -q 'channelview-user add'"
 
 echo
 echo "$pass passed, $fail failed"

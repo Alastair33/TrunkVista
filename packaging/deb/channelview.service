@@ -15,11 +15,11 @@ Environment=CHANNELVIEW_ARGS=
 Environment=PYTHONUNBUFFERED=1
 EnvironmentFile=-/etc/default/channelview
 # systemd creates /var/lib/channelview for the service user: connections.json (the Zabbix API token, owner-only), the layouts,
-# config.json and the edit token live there.
+# config.json, the accounts (users.json) and the signed-in sessions live there. --require-login: never an open dashboard, even if the accounts file is lost.
 StateDirectory=channelview
 StateDirectoryMode=0750
 WorkingDirectory=/var/lib/channelview
-ExecStart=/usr/lib/channelview/channelview.py --no-browser --host ${CHANNELVIEW_HOST} --port ${CHANNELVIEW_PORT} --data-dir /var/lib/channelview --token-file /var/lib/channelview/edit_token $CHANNELVIEW_ARGS
+ExecStart=/usr/lib/channelview/channelview.py --no-browser --host ${CHANNELVIEW_HOST} --port ${CHANNELVIEW_PORT} --data-dir /var/lib/channelview --require-login $CHANNELVIEW_ARGS
 Restart=on-failure
 RestartSec=5
 UMask=0077

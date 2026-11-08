@@ -4,13 +4,12 @@
 # Where the dashboard listens.
 #   127.0.0.1   only this machine (default, the safe choice)
 #   0.0.0.0     all network interfaces: other PCs and wall displays on the LAN can open it.
-#               Viewing then needs no login. Editing needs the edit token:
-#                   sudo cat /var/lib/channelview/edit_token
-#               open  http://<this-server>:8088/?token=<that token>  once in the browser you edit from.
+#               Everybody has to sign in (accounts: sudo channelview-user --help, or the account menu in the page).
+#               Do switch on HTTPS (below) first: without it passwords cross the network readable.
 CHANNELVIEW_HOST=127.0.0.1
 CHANNELVIEW_PORT=8088
 
-# HTTPS - recommended as soon as the dashboard is opened from other PCs (the edit token then travels encrypted):
+# HTTPS - recommended as soon as the dashboard is opened from other PCs (the passwords then travel encrypted):
 #   sudo channelview-cert          makes a self-signed certificate in /etc/channelview/tls (or use your own / Let's Encrypt files)
 # then remove the two # below and restart. The certificate files are re-read when they change, so a renewal needs no restart.
 # The files must be readable by the group channelview (the key: chmod 640, chgrp channelview).

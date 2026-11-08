@@ -356,13 +356,13 @@ class EditTokenFile(unittest.TestCase):
     def test_lan_bind_keeps_a_stored_token_out_of_the_log(self):
         with tempfile.TemporaryDirectory() as tmp:
             tf = Path(tmp, "d", "edit_token")
-            with Server(tmp, "--host", "0.0.0.0", "--data-dir", tmp + "/d", "--token-file", str(tf)) as s:
+            with Server(tmp, "--host", "0.0.0.0", "--no-login", "--data-dir", tmp + "/d", "--token-file", str(tf)) as s:
                 tok, log = tf.read_text().strip(), s.text()
                 self.assertNotIn(tok, log)
                 self.assertIn(str(tf), log)
                 self.assertIn("Listening on 0.0.0.0", log)
         with tempfile.TemporaryDirectory() as tmp:       # without --token-file the one-off token IS printed (that is how it is found)
-            with Server(tmp, "--host", "0.0.0.0", "--data-dir", tmp + "/d") as s:
+            with Server(tmp, "--host", "0.0.0.0", "--no-login", "--data-dir", tmp + "/d") as s:
                 self.assertRegex(s.text(), r"\?token=[A-Za-z0-9_-]{16,}")
 
 

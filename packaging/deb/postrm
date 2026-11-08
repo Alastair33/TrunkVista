@@ -10,6 +10,10 @@ if [ "$1" = "remove" ] && command -v deb-systemd-helper >/dev/null 2>&1; then
 fi
 
 if [ "$1" = "purge" ]; then
+    if [ -e /usr/share/debconf/confmodule ]; then
+        . /usr/share/debconf/confmodule
+        db_purge || true
+    fi
     if command -v deb-systemd-helper >/dev/null 2>&1; then
         deb-systemd-helper purge 'channelview.service' 'channelview-update.timer' >/dev/null || true
         deb-systemd-helper unmask 'channelview.service' 'channelview-update.timer' >/dev/null || true
@@ -24,7 +28,7 @@ MSG
     fi
     if [ -d /var/lib/channelview ]; then
         cat <<'MSG'
-channelview: /var/lib/channelview (your layouts, the saved Zabbix connection with its API token, the edit token) and the
+channelview: /var/lib/channelview (your layouts, the saved Zabbix connection with its API token, the accounts) and the
 channelview system user were kept, so a reinstall picks up where you left off. To remove them for good:
     sudo rm -rf /var/lib/channelview && sudo deluser --system channelview
 MSG

@@ -1,8 +1,50 @@
 #!/bin/sh
 set -e
+. /usr/share/debconf/confmodule      # (from here on standard output goes to standard error: debconf owns the real one)
 
 SVC_USER=channelview
 DATA=/var/lib/channelview
+PROG=/usr/lib/channelview/channelview.py
+created_note=""
+
+# An answer from debconf; "" when the question is unknown (dpkg -i without debconf's pre-configuration): never the error text.
+answer() { if db_get "$1"; then ANSWER="$RET"; else ANSWER=""; fi; }
+has_accounts() { [ -s "$DATA/users.json" ] && grep -q '"username"' "$DATA/users.json" 2>/dev/null; }
+
+# The first account. Answers come from the questions in `config` (or were preseeded); no answer = user name "admin" and a random password.
+create_admin() {
+    has_accounts && return 0
+    name=""; pw=""
+    answer channelview/admin_user;     name="$ANSWER"
+    answer channelview/admin_password; pw="$ANSWER"
+    db_reset channelview/admin_password || true            # the password is not kept in the debconf database
+    db_reset channelview/admin_password_again || true
+    [ -n "$name" ] || name=admin
+    if [ -n "$pw" ]; then
+        if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin >/dev/null 2>"$DATA/.user-add.err"; then
+            created_note="The administrator account '$name' was created with the password you gave."
+            rm -f "$DATA/.user-add.err"
+            return 0
+        fi
+        echo "channelview: could not use that account: $(cat "$DATA/.user-add.err" 2>/dev/null) - making a random password instead." >&2
+        rm -f "$DATA/.user-add.err"
+    fi
+    case "$name" in *[!A-Za-z0-9._@-]*|"") name=admin ;; esac
+    pw="$(tr -dc 'A-HJ-NP-Za-km-z2-9' </dev/urandom | head -c 20)"
+    if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin --must-change >/dev/null; then
+        ( umask 077; printf 'username: %s\npassword: %s\n' "$name" "$pw" > "$DATA/initial-admin-password" )
+        chown "$SVC_USER:$SVC_USER" "$DATA/initial-admin-password"
+        created_note="The administrator account '$name' was created with a random password, which you must change at the first sign-in.
+  It is in $DATA/initial-admin-password (root only) until then:  sudo cat $DATA/initial-admin-password"
+        if [ -t 2 ]; then
+            created_note="$created_note
+  user name: $name
+  password:  $pw      (apt keeps a log of this screen: change the password now)"
+        fi
+    else
+        created_note="WARNING: no account could be created, so nobody can sign in.  Create one:  sudo channelview-user add NAME --role admin"
+    fi
+}
 
 if [ "$1" = "configure" ]; then
     if ! getent passwd "$SVC_USER" >/dev/null 2>&1; then
@@ -10,6 +52,9 @@ if [ "$1" = "configure" ]; then
     fi
     # systemd's StateDirectory= makes this too when the service starts; this covers manual runs and systems without systemd.
     install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
+    create_admin
+    # the edit token of the older versions is not used any more: signed-in administrators edit
+    if has_accounts; then rm -f "$DATA/edit_token"; fi
 fi
 
 if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-deconfigure" ] || [ "$1" = "abort-remove" ]; then
@@ -33,16 +78,21 @@ if [ "$1" = "configure" ] || [ "$1" = "abort-upgrade" ] || [ "$1" = "abort-decon
     fi
 fi
 
+if [ "$1" = "configure" ] && [ -n "$created_note" ]; then
+    printf '\nchannelview: %s\n' "$created_note"
+fi
 if [ "$1" = "configure" ] && [ -z "$2" ]; then
     cat <<MSG
 
-channelview is installed and running on http://127.0.0.1:8088/ (this machine only).
-  * Add your Zabbix server: open that page, click the status chip at the top, enter the URL and an API token.
+channelview is installed and running on http://127.0.0.1:8088/ (this machine only). Everybody signs in.
+  * Open that page, sign in as the administrator, click the status chip at the top and add your Zabbix server (URL and API token).
+  * Accounts:  the account menu in the page (administrators), or  sudo channelview-user --help
+    Wall displays: an account with --idle never (a viewer that is never signed out).
   * Other PCs / wall displays: set CHANNELVIEW_HOST=0.0.0.0 in /etc/default/channelview, then: sudo systemctl restart channelview
-    (editing from another PC needs the edit token:  sudo cat /var/lib/channelview/edit_token )
-  * HTTPS:  sudo channelview-cert   and follow what it prints
+    and switch on HTTPS first (passwords!):  sudo channelview-cert   and follow what it prints
   * Updates from GitHub:  sudo channelview-update      Logs:  journalctl -u channelview
 MSG
 fi
 
+db_stop || true
 exit 0

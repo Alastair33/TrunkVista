@@ -28,9 +28,11 @@ Connections saved in the menu live in <data-dir>/connections.json (owner-only); 
 HTTPS: --tls-cert FILE --tls-key FILE (or CHANNELVIEW_TLS_CERT / CHANNELVIEW_TLS_KEY) make the server speak HTTPS itself - no Apache or Nginx needed;
 a renewed certificate is picked up without a restart. Your own style rules go into <data-dir>/custom.css (kept across updates).
 
-Security: binds to 127.0.0.1 by default. Anything that changes the layout needs the edit token (embedded
-for local browsers; for remote ones open http://HOST:PORT/?token=<token printed at start-up>; with --token-file
-the token is kept in that file instead - a service uses that - and is not printed).
+Security: binds to 127.0.0.1 by default. Sign-in: as soon as an account exists (channelview.py user add NAME) every page and every
+request needs one - "admin" accounts may edit, "viewer" accounts only look - and each account has its own automatic sign-out (or never,
+for a wall display). Without any account (this machine only, or --demo) the older mode applies: anything that changes the layout
+needs the edit token (embedded for local browsers; for remote ones open http://HOST:PORT/?token=<token printed at start-up>; with
+--token-file the token is kept in that file instead and is not printed). Listening on other addresses needs an account (or --no-login).
 
 Install on Debian / Ubuntu as a service, and update it from GitHub releases: see the .deb package and `channelview-update`
 (the packaging/ folder of the repository); `channelview.py --version` shows what is installed.
@@ -38,8 +40,13 @@ Install on Debian / Ubuntu as a service, and update it from GitHub releases: see
 from __future__ import annotations
 
 import argparse
+import base64
+import contextlib
+import copy
 import gzip
+import hashlib
 import hmac
+import html
 import json
 import math
 import os
@@ -1621,6 +1628,21 @@ table.dt{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;f
 .mbox .mb .row{align-items:flex-start}.mbox .mb .row .fld{flex:1}
 .mbox .mb ul{margin:6px 0 0;padding-left:20px}.mbox .mb li{margin:3px 0;font-size:12px}
 .mbox .mf{display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 16px}
+#btn-user{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbox.wide{width:min(940px,100%)}
+.utbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.utbl th{text-align:left;font-weight:500;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.utbl td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.utbl td.nm{font-weight:600;min-width:120px;overflow-wrap:anywhere}
+.utbl td.nm small{font-weight:400;overflow-wrap:normal}
+.utbl .tag{font-weight:400;font-size:11px;color:var(--muted);margin-left:4px}
+.utbl .acts{display:flex;gap:6px;flex-wrap:wrap}
+.utbl .acts button{padding:2px 8px;font-size:12px}
+.utbl small{display:block;color:var(--muted);font-size:11px}
+.uadd{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:4px 10px;align-items:end;margin-top:6px}
+.uaddf{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+.chk{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin:6px 0}
+.mbox .mb h4{margin:14px 0 2px;font-size:13px}
 button.dangerbtn{background:#b91c1c;border-color:#ef4444;color:#fff}button.dangerbtn:hover{background:#dc2626}
 .devbar select{padding:4px 8px}
 .devbar .seg button{padding:4px 10px}
@@ -1702,6 +1724,7 @@ body.kiosk .cta{display:none}
     <button id="btn-refresh" title="Refresh now: reconnect to Zabbix and reload the data (R)" aria-label="Refresh"><span>&#x21BB;</span></button>
     <span class="chip" id="viewonly" hidden>view only</span>
     <button id="btn-edit" hidden>Edit</button>
+    <button id="btn-user" type="button" hidden></button>
     <button id="btn-theme" type="button" title="Colour theme (T)">&#9680;</button>
     <button id="btn-kiosk" title="Kiosk mode (K)">Kiosk</button>
     <button id="btn-full" title="Fullscreen (F)">&#x26F6;</button>
@@ -1745,14 +1768,20 @@ function svg(tag, attrs = {}, ...kids) {
   for (const c of kids.flat(Infinity)) if (c) e.append(c);
   return e;
 }
+// Automatic sign-out counts the time since a PERSON last did something: the page tells the server (X-CV-Active) when the mouse, a key or a touch was used
+// since the previous request. The refreshing the page does by itself does not count, so a wall display with an automatic sign-out does sign out.
+let userActive = true;
+for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"]) addEventListener(ev, () => { userActive = true; }, { passive: true, capture: true });
 async function api(path, opts = {}) {
+  const act = userActive; userActive = false;
   const r = await fetch(path, {
     method: opts.body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "X-Edit-Token": EDIT_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Edit-Token": EDIT_TOKEN, "X-CV-Active": act ? "1" : "0" },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   let j = null;
   try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 && j && j.login) { location.reload(); throw new Error("Signed out - sign in again."); }      // the session ended: the server shows the sign-in page
   if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
   return j;
 }
@@ -1793,6 +1822,7 @@ renderTheme();
 
 // ---------- state
 let L = null, canEdit = false, editing = false, tabId = null, view = null, status = null;
+let ME = null, modalLock = false;      // ME: the signed-in account {name, role, idle_minutes, must_change}; null without accounts (and in the standalone demo)
 let sel = null, dragging = false, suppressClick = false, showIf = true;
 try { showIf = localStorage.getItem("showIf") !== "0"; } catch (e) {}
 const play = { id: null, idx: 0, running: false, remaining: 0, total: 0 };
@@ -2847,7 +2877,7 @@ addEventListener("keydown", e => {
 });
 
 // A small confirmation window used by Modify and Delete (and by the editor's own delete buttons).
-function closeModal() { const m = $("#mdl"); m.hidden = true; m.replaceChildren(); }
+function closeModal() { if (modalLock) return; const m = $("#mdl"); m.hidden = true; m.replaceChildren(); }
 function openModal(title, kids, actions) {
   const m = $("#mdl"), box = el("div", { class: "mbox", role: "dialog", "aria-modal": "true", "aria-label": title },
     el("div", { class: "mh" }, el("b", {}, title), btn("✕", closeModal, "x")), el("div", { class: "mb" }, kids), el("div", { class: "mf" }, actions));
@@ -2859,6 +2889,107 @@ function openModal(title, kids, actions) {
   return box;
 }
 const mErr = box => { let e = box.querySelector(".merr"); if (!e) { e = el("div", { class: "box badb merr" }); box.querySelector(".mb").append(e); } return e; };
+
+// ---------- accounts: who is signed in, change the password, (administrators) manage users and their automatic sign-out
+const IDLE_CHOICES = [[15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"], [240, "4 hours"], [480, "8 hours"], [1440, "24 hours"], [0, "Never (wall display)"]];
+const idleText = m => m ? "after " + (IDLE_CHOICES.find(c => c[0] === m) || [0, m + " minutes"])[1] + " without activity" : "never";
+const roleText = r => r === "admin" ? "administrator" : "viewer";
+function renderUser() {
+  const b = $("#btn-user"); b.hidden = !ME;
+  if (ME) { b.textContent = ME.name; b.title = "Signed in as " + ME.name + " (" + roleText(ME.role) + ") - account, password, sign out"; }
+}
+function idleSelect(value, onchange) {
+  const ch = IDLE_CHOICES.some(c => c[0] === value) ? IDLE_CHOICES : [[value, value + " minutes"], ...IDLE_CHOICES];
+  const s = el("select", { title: "Signs the account out after this long without anybody using the page. Never: for a wall display." }, ch.map(c => el("option", { value: c[0] }, c[1])));
+  s.value = String(value);
+  if (onchange) s.addEventListener("change", () => onchange(parseInt(s.value, 10)));
+  return s;
+}
+function genPassword() { const A = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => A[b % A.length]).join(""); }
+async function signOut() { try { await api("/api/logout", { body: {} }); } catch (e) {} location.reload(); }
+function openAccount() {
+  openModal("Account", [
+    el("p", {}, "Signed in as ", el("b", {}, ME.name), " (" + roleText(ME.role) + ")."),
+    el("p", { class: "muted" }, "Automatic sign-out: " + idleText(ME.idle_minutes) + ". An administrator can change that.")],
+    [ME.role === "admin" ? btn("Users…", () => openUsers()) : null, btn("Change password", () => openPassword(false)), btn("Sign out", signOut, "primary"), btn("Close", closeModal)]);
+}
+function openPassword(forced) {
+  const cur = el("input", { type: "password", autocomplete: "current-password", maxlength: 1000 });
+  const n1 = el("input", { type: "password", autocomplete: "new-password", maxlength: 200 }), n2 = el("input", { type: "password", autocomplete: "new-password", maxlength: 200 });
+  const box = openModal(forced ? "Choose a new password" : "Change password", [
+    forced ? el("div", { class: "box warnb" }, "This account was set up with a temporary password. Choose your own to continue.") : null,
+    fld("Current password", cur), fld("New password (at least 10 characters)", n1), fld("New password again", n2)],
+    [forced ? null : btn("Cancel", closeModal), btn("Change password", save, "primary")]);
+  if (forced) { modalLock = true; const x = box.querySelector(".mh .x"); if (x) x.remove(); }
+  async function save() {
+    const fail = m => { mErr(box).textContent = m; };
+    if (n1.value.length < 10) return fail("Use at least 10 characters.");
+    if (n1.value !== n2.value) return fail("The two new passwords differ.");
+    try { await api("/api/account/password", { body: { current: cur.value, new: n1.value } }); location.reload(); }
+    catch (e) { fail(e.message); }
+  }
+}
+function openSetPassword(u) {
+  const pw = el("input", { type: "text", autocomplete: "off", spellcheck: "false", maxlength: 200, value: genPassword() });
+  const mc = el("input", { type: "checkbox" }); mc.checked = u.role === "admin";
+  const box = openModal("Password for " + u.username, [
+    el("p", { class: "muted" }, "Every session of this account ends. Give the person the new password; it is not shown again."),
+    fld("New password (at least 10 characters)", pw),
+    el("label", { class: "chk" }, mc, el("span", {}, "Ask for a new password at the next sign-in (leave off for a wall display)"))],
+    [btn("Cancel", () => openUsers()), btn("Set password", async () => {
+      try { await api("/api/users/password", { body: { username: u.username, password: pw.value, must_change: mc.checked } }); openUsers(); }
+      catch (e) { mErr(box).textContent = e.message; }
+    }, "primary")]);
+}
+async function openUsers() {
+  let data, msg = "";
+  try { data = await api("/api/users"); }
+  catch (e) { openModal("Users", [el("div", { class: "box badb" }, e.message)], [btn("Close", closeModal)]); return; }
+  const box = openModal("Users", [], [btn("Close", closeModal)]);
+  box.classList.add("wide");
+  const body = box.querySelector(".mb");
+  async function act(path, payload, keep) {
+    try { data = await api(path, { body: payload }); msg = ""; draw(); return true; }
+    catch (e) { msg = e.message; if (keep) { const x = body.querySelector(".merr"); if (x) { x.textContent = msg; x.hidden = false; } } else draw(); return false; }
+  }
+  function draw() {
+    const me = data.me.toLowerCase(), when = t => t ? new Date(t * 1000).toLocaleString() : "never";
+    const rows = data.users.map(u => {
+      const self = u.username.toLowerCase() === me;
+      const role = el("select", { disabled: self }, ["admin", "viewer"].map(r => el("option", { value: r }, r === "admin" ? "Administrator" : "Viewer")));
+      role.value = u.role; role.addEventListener("change", () => act("/api/users/update", { username: u.username, role: role.value }));
+      const on = el("input", { type: "checkbox", disabled: self, title: "An inactive account cannot sign in" }); on.checked = !u.disabled;
+      on.addEventListener("change", () => act("/api/users/update", { username: u.username, disabled: !on.checked }));
+      return el("tr", {},
+        el("td", { class: "nm" }, u.username, self ? el("span", { class: "tag" }, "you") : null, u.must_change ? el("small", {}, "must choose a new password") : null),
+        el("td", {}, role),
+        el("td", {}, idleSelect(u.idle_minutes, v => act("/api/users/update", { username: u.username, idle_minutes: v }))),
+        el("td", {}, on),
+        el("td", {}, u.sessions + (u.sessions === 1 ? " session" : " sessions"), el("small", {}, "last sign-in " + when(u.last_login))),
+        el("td", {}, el("div", { class: "acts" },
+          self ? null : btn("Set password", () => openSetPassword(u)),
+          btn("Sign out", () => act("/api/users/signout", { username: u.username }), ""),
+          self ? null : btn("Delete", () => { if (confirm("Delete the account " + u.username + "? Its sessions end at once.")) act("/api/users/delete", { username: u.username }); }, "dangerbtn"))));
+    });
+    const nm = el("input", { autocomplete: "off", maxlength: 64, spellcheck: "false", autocapitalize: "none", placeholder: "user name" });
+    const pw = el("input", { type: "text", autocomplete: "off", spellcheck: "false", maxlength: 200, value: genPassword() });
+    const rl = el("select", {}, el("option", { value: "viewer" }, "Viewer"), el("option", { value: "admin" }, "Administrator"));
+    const idl = idleSelect(480);
+    rl.addEventListener("change", () => { idl.value = rl.value === "admin" ? "60" : "480"; });
+    const mc = el("input", { type: "checkbox" }); mc.checked = true;
+    const add = btn("Add user", () => act("/api/users/add", { username: nm.value, password: pw.value, role: rl.value, idle_minutes: parseInt(idl.value, 10), must_change: mc.checked }, true), "primary");
+    const err = el("div", { class: "box badb merr" }, msg); err.hidden = !msg;
+    body.replaceChildren(
+      el("p", { class: "muted" }, "Administrators may edit. Viewers only look. Each account signs out by itself after the time set here without anybody using the page; choose “Never” for a wall display."),
+      el("table", { class: "utbl" }, el("thead", {}, el("tr", {}, ["User", "Role", "Automatic sign-out", "Active", "Signed in", ""].map(h => el("th", {}, h)))), el("tbody", {}, rows)),
+      el("h4", {}, "Add a user"),
+      el("div", { class: "uadd" }, fld("User name", nm), fld("Password (at least 10 characters)", pw), fld("Role", rl), fld("Automatic sign-out", idl)),
+      el("div", { class: "uaddf" }, el("label", { class: "chk" }, mc, el("span", {}, "Must choose a new password at the first sign-in")), add),
+      err);
+  }
+  draw();
+}
+$("#btn-user").addEventListener("click", () => { if (ME) openAccount(); });
 
 function askDeleteNode(m, n) {
   const links = m.links.filter(l => l.a.node === n.id || l.b.node === n.id), by = id => m.nodes.find(x => x.id === id);
@@ -2941,7 +3072,7 @@ async function openConnections(msg) {
   CONN.msg = msg || ""; CONN.result = null;
   const box = $("#conn"); box.hidden = false; renderCta();
   box.replaceChildren(dlgShell(el("div", { class: "empty" }, "Loading…")));
-  if (!canEdit) { box.replaceChildren(dlgShell(el("div", { class: "box warnb", style: "margin:16px" }, "Connections can only be changed from the machine running the dashboard, or by opening the page with ?token=… (see the start-up message)."))); return; }
+  if (!canEdit) { box.replaceChildren(dlgShell(el("div", { class: "box warnb", style: "margin:16px" }, ME ? "Connections can only be changed by an administrator." : "Connections can only be changed from the machine running the dashboard, or by opening the page with ?token=… (see the start-up message)."))); return; }
   try { CONN.data = await api("/api/connections"); }
   catch (e) { box.replaceChildren(dlgShell(el("div", { class: "box badb", style: "margin:16px" }, e.message))); return; }
   CONN.mode = CONN.data.mode;
@@ -3075,6 +3206,8 @@ async function boot() {
   let r;
   try {
     r = await api("/api/layout");
+    ME = r.user || null; renderUser();
+    if (ME && ME.must_change) { $("#main").replaceChildren(el("div", { class: "empty" }, "Choose a new password to continue.")); openPassword(true); return; }
     L = r.layout; canEdit = r.can_edit; DEMO = !!r.demo; CONN.mode = r.mode || "server";
     for (const m of Object.values(L.maps)) for (const l of m.links) fitVia(m, l);      // links bent by earlier versions with several bend points: keep the one that matters
   } catch (e) { $("#main").replaceChildren(el("div", { class: "empty err" }, "Cannot load the dashboard: " + e.message)); return; }
@@ -3094,6 +3227,562 @@ boot();
 </body>
 </html>
 """
+
+
+# --------------------------------------------------------------------------- accounts: users, passwords, sessions
+
+class AccountError(ValueError):
+    """A request the account store refuses; the text is meant for the person who made it."""
+
+
+PW_ITER = 600_000          # PBKDF2-HMAC-SHA256 rounds for NEW password hashes (the OWASP 2023 figure); the tests lower it
+PW_MIN, PW_MAX = 10, 200   # characters
+USER_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
+ROLES = ("admin", "viewer")
+DEFAULT_IDLE = {"admin": 60, "viewer": 480}      # minutes without activity until a session ends (0 = never)
+IDLE_MAX = 60 * 24 * 365
+SESSION_COOKIE = "cv_session"
+SESSION_RX = re.compile(r"^[A-Za-z0-9_-]{32,128}$")
+MAX_SESSIONS = 20          # per user; the one that was used longest ago is dropped
+INITIAL_PW_FILE = "initial-admin-password"
+_KEEP = object()           # 'leave this setting as it is'
+_HASH_SLOTS = threading.BoundedSemaphore(4)      # hashing is slow on purpose: a flood of logins must not use up every CPU the dashboard needs
+
+
+def write_private(path: Path, text: str):
+    """Write `text` to `path` atomically; owner-only from the first byte (these files hold password hashes and session keys)."""
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
+    try:
+        fd = os.open(str(tmp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())                 # (a power cut right after the rename must not leave an empty accounts file)
+        os.replace(tmp, path)
+    finally:
+        try:
+            tmp.unlink()
+        except FileNotFoundError:
+            pass
+
+
+@contextlib.contextmanager
+def file_lock(path: Path):
+    """Serialises read-modify-write of one file between this server and the `user` command (another process). Without fcntl: no lock."""
+    lk = None
+    try:
+        import fcntl
+        lk = open(path.with_name(path.name + ".lock"), "a+")
+        fcntl.flock(lk, fcntl.LOCK_EX)
+    except (ImportError, OSError):
+        if lk is not None:
+            lk.close()
+        lk = None
+    try:
+        yield
+    finally:
+        if lk is not None:
+            lk.close()
+
+
+def _b64(b: bytes) -> str:
+    return base64.b64encode(b).decode("ascii")
+
+
+def hash_password(password: str, iterations: int = 0) -> str:
+    n = iterations or PW_ITER
+    salt = os.urandom(16)
+    with _HASH_SLOTS:
+        dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, n)
+    return f"pbkdf2_sha256${n}${_b64(salt)}${_b64(dk)}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        algo, n, salt, want = stored.split("$")
+        n = int(n)
+        salt, want = base64.b64decode(salt), base64.b64decode(want)
+    except (ValueError, TypeError, AttributeError):
+        return False
+    if algo != "pbkdf2_sha256" or not 1000 <= n <= 10_000_000:      # (a damaged file must not make the server spin for hours)
+        return False
+    with _HASH_SLOTS:
+        got = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, n)
+    return hmac.compare_digest(got, want)
+
+
+_dummy_hash = []
+
+
+def dummy_hash() -> str:
+    """A hash nobody has the password of: an unknown user name costs the same time as a wrong password (no way to find out which names exist)."""
+    if not _dummy_hash:
+        _dummy_hash.append(hash_password(secrets.token_urlsafe(18)))
+    return _dummy_hash[0]
+
+
+def check_new_password(password, username="") -> str:
+    """'' if the password is acceptable, else what is wrong with it."""
+    if not isinstance(password, str):
+        return "The password must be text."
+    if len(password) < PW_MIN:
+        return f"Use at least {PW_MIN} characters."
+    if len(password) > PW_MAX:
+        return f"Use at most {PW_MAX} characters."
+    if not password.strip():
+        return "The password cannot be only spaces."
+    if username and password.lower() == username.lower():
+        return "The password must not be the user name."
+    return ""
+
+
+def check_idle(value, role="viewer"):
+    """Minutes (0 = never) from a request or the command line; None / '' = the default of that role."""
+    if value in (None, ""):
+        return DEFAULT_IDLE[role]
+    if isinstance(value, str) and value.strip().lower() in ("never", "0"):
+        return 0
+    if isinstance(value, bool):
+        raise AccountError("Auto-logout must be a number of minutes, or never.")
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        raise AccountError("Auto-logout must be a number of minutes, or never.")
+    if not 0 <= v <= IDLE_MAX:
+        raise AccountError(f"Auto-logout must be between 1 minute and {IDLE_MAX} minutes, or never.")
+    return v
+
+
+def audit(event, **kv):
+    """One line in the log (the journal, for the service) for every sign-in, failure and account change. Never a password or a session key."""
+    safe = lambda v: re.sub(r"[^A-Za-z0-9._@:-]", "?", str(v))[:48]
+    print(f"[accounts] {event} " + " ".join(f"{k}={safe(v)}" for k, v in kv.items()), flush=True)
+
+
+class UserStore:
+    """users.json: {"users": {name: {username, hash, role, idle_minutes, disabled, must_change, created, valid_from, last_login}}}.
+    A file changed by the `user` command is read again at the next request. Sessions older than a user's valid_from are void: a password
+    change, 'sign out everywhere' and disabling an account set it, so they work from the command line too."""
+
+    def __init__(self, path, clock=time.time):
+        self.path, self.clock = Path(path), clock
+        self.lock = threading.RLock()
+        self._users = {}
+        self._sig = None
+        self.error = ""          # set when the file exists but cannot be read; the last good content stays in use
+        self._reload(force=True)
+
+    def _signature(self):
+        try:
+            st = self.path.stat()
+            return (st.st_mtime_ns, st.st_size, st.st_ino)
+        except OSError:
+            return None
+
+    @staticmethod
+    def _clean(name, u):
+        if not isinstance(u, dict) or not isinstance(u.get("hash"), str):
+            return None
+        role = u.get("role") if u.get("role") in ROLES else "viewer"          # an unreadable role gets the lesser one
+        try:
+            idle = check_idle(u.get("idle_minutes"), role)
+        except AccountError:
+            idle = DEFAULT_IDLE[role]
+        num = lambda k: float(u.get(k) or 0) if isinstance(u.get(k), (int, float)) else 0.0
+        return {"username": str(u.get("username") or name)[:64], "hash": u["hash"], "role": role, "idle_minutes": idle,
+                "disabled": bool(u.get("disabled")), "must_change": bool(u.get("must_change")),
+                "created": num("created"), "valid_from": num("valid_from"), "last_login": num("last_login")}
+
+    def _reload(self, force=False):
+        with self.lock:
+            sig = self._signature()
+            if not force and sig == self._sig:
+                return
+            if sig is None:
+                self._users, self._sig, self.error = {}, None, ""
+                return
+            try:
+                raw = json.loads(self.path.read_text(encoding="utf-8"))
+                users = {}
+                for name, u in (raw.get("users") or {}).items():
+                    c = self._clean(name, u)
+                    if c and USER_RX.match(c["username"]):
+                        users[c["username"].lower()] = c
+            except (OSError, ValueError, AttributeError) as e:
+                self.error = f"{self.path} cannot be read: {e}"
+                return
+            self._users, self._sig, self.error = users, sig, ""
+
+    def _mutate(self, fn):
+        """Read the file again, let `fn` change a COPY, write it, and only then make the copy the current state: a refused change (the last
+        administrator, an unknown user) or a failed write leaves what is in memory exactly as it is on disk."""
+        with self.lock, file_lock(self.path):
+            self._reload(force=True)
+            if self.error:
+                raise AccountError("The accounts file is damaged - fix or remove it first: " + self.error)
+            work = copy.deepcopy(self._users)
+            result = fn(work)
+            write_private(self.path, json.dumps({"version": 1, "users": work}, indent=1))
+            self._users, self._sig = work, self._signature()
+            return result
+
+    # ---- reading
+    def any(self):
+        self._reload()
+        return bool(self._users)
+
+    def get(self, name):
+        self._reload()
+        u = self._users.get(str(name or "").strip().lower())
+        return dict(u) if u else None
+
+    def list(self):
+        self._reload()
+        return [dict(u) for _, u in sorted(self._users.items())]
+
+    # ---- changing
+    @staticmethod
+    def _admin_left(users):
+        if not any(u["role"] == "admin" and not u["disabled"] for u in users.values()):
+            raise AccountError("There must always be one enabled administrator.")
+
+    def add(self, name, password, role="viewer", idle=None, must_change=False):
+        name = str(name or "").strip()
+        if not USER_RX.match(name):
+            raise AccountError("The user name may use letters, digits and . _ @ - (1 to 64 characters, starting with a letter or digit).")
+        if role not in ROLES:
+            raise AccountError("The role must be admin or viewer.")
+        idle = check_idle(idle, role)
+        problem = check_new_password(password, name)
+        if problem:
+            raise AccountError(problem)
+        hashed = hash_password(password)
+
+        def go(users):
+            if name.lower() in users:
+                raise AccountError(f"The user {name} already exists.")
+            now = self.clock()
+            users[name.lower()] = {"username": name, "hash": hashed, "role": role, "idle_minutes": idle, "disabled": False,
+                                   "must_change": bool(must_change), "created": now, "valid_from": 0.0, "last_login": 0.0}
+        self._mutate(go)
+
+    def update(self, name, role=None, idle=_KEEP, disabled=None):
+        def go(users):
+            u = users.get(str(name or "").strip().lower())
+            if not u:
+                raise AccountError("No such user.")
+            if role is not None:
+                if role not in ROLES:
+                    raise AccountError("The role must be admin or viewer.")
+                u["role"] = role
+            if idle is not _KEEP:
+                u["idle_minutes"] = check_idle(idle, u["role"])
+            if disabled is not None:
+                u["disabled"] = bool(disabled)
+                if disabled:
+                    u["valid_from"] = self.clock()
+            self._admin_left(users)
+        self._mutate(go)
+
+    def set_password(self, name, password, must_change=False):
+        u = self.get(name)
+        problem = check_new_password(password, u["username"] if u else "")
+        if problem:
+            raise AccountError(problem)
+        hashed = hash_password(password)
+
+        def go(users):
+            u = users.get(str(name or "").strip().lower())
+            if not u:
+                raise AccountError("No such user.")
+            u["hash"], u["must_change"], u["valid_from"] = hashed, bool(must_change), self.clock()      # every session of this user ends
+        self._mutate(go)
+
+    def signout_everywhere(self, name):
+        def go(users):
+            u = users.get(str(name or "").strip().lower())
+            if not u:
+                raise AccountError("No such user.")
+            u["valid_from"] = self.clock()
+        self._mutate(go)
+
+    def delete(self, name):
+        def go(users):
+            if users.pop(str(name or "").strip().lower(), None) is None:
+                raise AccountError("No such user.")
+            self._admin_left(users)
+        self._mutate(go)
+
+    def touch_login(self, name):
+        try:
+            def go(users):
+                u = users.get(str(name).lower())
+                if u:
+                    u["last_login"] = self.clock()
+            self._mutate(go)
+        except (AccountError, OSError):
+            pass
+
+
+class SessionStore:
+    """Signed-in browsers. The browser holds a random key in a cookie; only its SHA-256 is kept here (sessions.json, owner-only), so the file is
+    useless to someone who reads it. Sessions survive a restart - a wall display must not fall back to the sign-in page after every update."""
+
+    FLUSH_EVERY = 60          # seconds: how often the last-activity times reach the disk (sign-in and sign-out are written at once)
+
+    def __init__(self, path, users, clock=time.time):
+        self.path, self.users, self.clock = Path(path), users, clock
+        self.lock = threading.Lock()
+        self.s = {}
+        self._dirty = False
+        self._saved = clock()
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            for h, rec in (raw.get("sessions") or {}).items():
+                if re.fullmatch(r"[0-9a-f]{64}", h) and isinstance(rec, dict) and isinstance(rec.get("user"), str) and isinstance(rec.get("csrf"), str):
+                    self.s[h] = {"user": rec["user"].lower(), "csrf": rec["csrf"], "created": float(rec.get("created") or 0),
+                                 "last_active": float(rec.get("last_active") or 0), "ip": str(rec.get("ip") or "")[:64]}
+        except (OSError, ValueError, AttributeError, TypeError):
+            self.s = {}
+
+    @staticmethod
+    def _hash(token):
+        return hashlib.sha256(token.encode("ascii", "replace")).hexdigest()
+
+    def _flush(self, force=False):
+        now = self.clock()
+        if not (self._dirty and (force or now - self._saved >= self.FLUSH_EVERY)):
+            return
+        try:
+            write_private(self.path, json.dumps({"version": 1, "sessions": self.s}))
+            self._dirty, self._saved = False, now
+        except OSError:
+            self._saved = now          # (try again in a minute; a full disk must not turn every request into a write attempt)
+
+    def flush(self):
+        with self.lock:
+            self._flush(force=True)
+
+    def create(self, username, ip=""):
+        token, now = secrets.token_urlsafe(32), self.clock()
+        with self.lock:
+            mine = sorted((r["last_active"], h) for h, r in self.s.items() if r["user"] == username.lower())
+            for _, h in mine[:max(0, len(mine) - MAX_SESSIONS + 1)]:
+                del self.s[h]
+            self.s[self._hash(token)] = {"user": username.lower(), "csrf": secrets.token_urlsafe(24), "created": now, "last_active": now, "ip": ip[:64]}
+            self._dirty = True
+            self._flush(force=True)
+        return token
+
+    def lookup(self, token, active=False):
+        """The session behind a cookie value (a dict about the signed-in user), or None. active=True: a person touched the page, which
+        restarts the idle clock; the page's own polling does not."""
+        if not isinstance(token, str) or not SESSION_RX.match(token):
+            return None
+        h, now = self._hash(token), self.clock()
+        with self.lock:
+            rec = self.s.get(h)
+            if rec is None:
+                return None
+            u = self.users.get(rec["user"])
+            idle = (u or {}).get("idle_minutes", 0)
+            if not u or u["disabled"] or rec["created"] < u["valid_from"] or (idle and now - rec["last_active"] > idle * 60):
+                del self.s[h]
+                self._dirty = True
+                self._flush()
+                return None
+            if active:
+                rec["last_active"] = now
+                self._dirty = True
+            self._flush()
+            return {"user": u["username"], "role": u["role"], "idle_minutes": u["idle_minutes"], "must_change": u["must_change"],
+                    "csrf": rec["csrf"], "key": h}
+
+    def delete(self, token):
+        if not isinstance(token, str):
+            return
+        with self.lock:
+            if self.s.pop(self._hash(token), None) is not None:
+                self._dirty = True
+                self._flush(force=True)
+
+    def delete_user(self, username):
+        with self.lock:
+            gone = [h for h, r in self.s.items() if r["user"] == username.lower()]
+            for h in gone:
+                del self.s[h]
+            if gone:
+                self._dirty = True
+                self._flush(force=True)
+
+    def count(self, username):
+        now = self.clock()
+        u = self.users.get(username)
+        with self.lock:
+            return sum(1 for r in self.s.values() if r["user"] == username.lower() and u and r["created"] >= u["valid_from"]
+                       and not (u["idle_minutes"] and now - r["last_active"] > u["idle_minutes"] * 60))
+
+
+class Throttle:
+    """Failures per key inside a sliding window. A key with `limit` failures is blocked until its oldest failure is `window` seconds old."""
+
+    def __init__(self, limit, window, clock=time.time):
+        self.limit, self.window, self.clock = limit, window, clock
+        self.hits = {}
+        self.lock = threading.Lock()
+
+    def _recent(self, key, now):
+        lst = [t for t in self.hits.get(key, ()) if now - t < self.window]
+        if lst:
+            self.hits[key] = lst
+        else:
+            self.hits.pop(key, None)
+        return lst
+
+    def blocked(self, key):
+        """Seconds until the next try is allowed; 0 = go ahead."""
+        with self.lock:
+            now = self.clock()
+            lst = self._recent(key, now)
+            return int(math.ceil(lst[0] + self.window - now)) if len(lst) >= self.limit else 0
+
+    def fail(self, key):
+        with self.lock:
+            now = self.clock()
+            lst = self._recent(key, now)
+            lst.append(now)
+            self.hits[key] = lst
+            if len(self.hits) > 5000:          # keys come from the network: keep the table bounded, newest failures first
+                keep = sorted(self.hits.items(), key=lambda kv: kv[1][-1], reverse=True)[:2500]
+                self.hits = dict(keep)
+
+
+class LoginError(Exception):
+    def __init__(self, message, status=401, retry_after=0):
+        super().__init__(message)
+        self.status, self.retry_after = status, retry_after
+
+
+class Auth:
+    """Accounts and sessions of one running server. Login is required as soon as an account exists (or with --require-login), and stays
+    required for the life of the process: removing users.json under a running server must not open it up."""
+
+    def __init__(self, data_dir, require=False, clock=time.time):
+        data_dir = Path(data_dir)
+        self.users = UserStore(data_dir / "users.json", clock)
+        self.sessions = SessionStore(data_dir / "sessions.json", self.users, clock)
+        self.data_dir = data_dir
+        self._required = bool(require) or self.users.any()
+        self.by_ip = Throttle(10, 300, clock)         # failed sign-ins from one address: 10 in 5 minutes
+        self.by_user = Throttle(20, 900, clock)       # ... for one account, from anywhere: 20 in 15 minutes
+        self.by_pw = Throttle(10, 900, clock)         # wrong 'current password' while changing it (someone using a stolen session)
+        threading.Thread(target=dummy_hash, daemon=True).start()      # (made now, so that the first unknown name is not slower than the rest)
+
+    def required(self):
+        if not self._required and self.users.any():
+            self._required = True
+        return self._required
+
+    def login(self, username, password, ip):
+        """-> (cookie key, user dict). Raises LoginError. Unknown user, wrong password and disabled account look the same from outside."""
+        name = str(username or "").strip().lower()
+        key = name if USER_RX.match(name) else "-"
+        wait = max(self.by_ip.blocked(ip), self.by_user.blocked(key))
+        if wait:
+            audit("sign-in blocked", user=key, ip=ip)
+            raise LoginError(f"Too many failed attempts. Try again in {wait} s.", 429, wait)
+        u = self.users.get(name) if key != "-" else None
+        pw = password if isinstance(password, str) and len(password) <= 1000 else ""
+        ok = verify_password(pw, u["hash"] if u else dummy_hash()) and u is not None and not u["disabled"] and bool(pw)
+        if not ok:
+            self.by_ip.fail(ip)
+            self.by_user.fail(key)
+            audit("sign-in failed", user=key, ip=ip)
+            raise LoginError("Wrong user name or password.")
+        self.users.touch_login(u["username"])
+        audit("sign-in", user=u["username"], ip=ip, role=u["role"])
+        return self.sessions.create(u["username"], ip), u
+
+    def public(self, sess):
+        return {"name": sess["user"], "role": sess["role"], "idle_minutes": sess["idle_minutes"], "must_change": sess["must_change"]}
+
+
+def forget_initial_password(data_dir, username):
+    """The Debian package keeps a random first password in <data>/initial-admin-password until its owner has chosen their own."""
+    p = Path(data_dir) / INITIAL_PW_FILE
+    try:
+        first = p.read_text(encoding="utf-8").splitlines()[0].strip().lower()
+        if first == f"username: {username}".lower():
+            p.unlink()
+    except (OSError, IndexError):
+        pass
+
+
+def user_view(auth, u):
+    return {"username": u["username"], "role": u["role"], "idle_minutes": u["idle_minutes"], "disabled": u["disabled"],
+            "must_change": u["must_change"], "created": u["created"], "last_login": u["last_login"],
+            "sessions": auth.sessions.count(u["username"])}
+
+
+# --------------------------------------------------------------------------- the sign-in page
+
+def _logo_html():
+    m = re.search(r'<span class="logo">\s*(<svg\b.*?</svg>)', PAGE, re.S)
+    return m.group(1).replace("<svg", '<svg class="llogo"', 1) if m else ""
+
+
+LOGIN_CSS = """
+body{display:block;overflow:auto}
+#login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);overflow:auto}
+#login .lbox{width:min(360px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px 24px 20px;box-shadow:0 20px 60px var(--shadow, rgba(0,0,0,.35))}
+#login .llogo{width:60px;height:60px;display:block;margin:0 auto 8px}
+#login h1{font-size:20px;margin:0;text-align:center}
+#login .lsub{margin:2px 0 14px;text-align:center;color:var(--muted);font-size:13px}
+#login input{width:100%}
+#login button.primary{width:100%;margin-top:10px;padding:8px 12px;font-size:14px}
+#login .note{margin:12px 0 0;font-size:12px;color:var(--muted);text-align:center;line-height:1.5}
+"""
+
+LOGIN_BODY = """<body>
+<main id="login"><div class="lbox">
+  __LOGO__
+  <h1>ChannelView</h1>
+  <p class="lsub">Sign in to continue</p>
+  <form id="lf" autocomplete="on">
+    <label class="fld"><span>User name</span><input id="lu" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required autofocus></label>
+    <label class="fld"><span>Password</span><input id="lp" name="password" type="password" autocomplete="current-password" maxlength="1000" required></label>
+    <div id="lerr" class="box badb" role="alert" hidden></div>
+    <button id="lgo" class="primary" type="submit">Sign in</button>
+  </form>
+  <p class="note">__NOTE__</p>
+</div></main>
+<script>
+"use strict";
+const f = document.getElementById("lf"), err = document.getElementById("lerr"), go = document.getElementById("lgo"), pw = document.getElementById("lp");
+const fail = m => { err.textContent = m; err.hidden = false; };
+f.addEventListener("submit", async e => {
+  e.preventDefault(); err.hidden = true; go.disabled = true;
+  try {
+    const r = await fetch("/api/login", { method: "POST", credentials: "same-origin", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ username: document.getElementById("lu").value, password: pw.value }) });
+    let j = {}; try { j = await r.json(); } catch (x) {}
+    if (r.ok) { location.reload(); return; }
+    fail(j.error || ("The server answered " + r.status + "."));
+    pw.value = ""; pw.focus();
+  } catch (x) { fail("Cannot reach the server."); }
+  go.disabled = false;
+});
+</script>
+</body>
+</html>
+"""
+
+
+def login_page(note=""):
+    """The only page a visitor without a session gets: no map, no device names, no layout - just the form."""
+    head = PAGE[:PAGE.index("</head>")]
+    body = LOGIN_BODY.replace("__LOGO__", _logo_html()).replace("__NOTE__", html.escape(note))
+    return (head + "<style>" + LOGIN_CSS + "</style>\n</head>\n" + body).replace("<title>ChannelView</title>", "<title>Sign in - ChannelView</title>", 1)
 
 
 # --------------------------------------------------------------------------- HTTPS
@@ -3160,6 +3849,9 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "ChannelView"
     app: App = None
     edit_token = ""
+    auth = None             # an Auth when the server has user accounts (sign-in); None = the older mode with the edit token
+    secure_cookie = False   # mark the session cookie Secure although this server speaks plain HTTP (behind an HTTPS reverse proxy)
+    _sess = None            # the signed-in session of the request being handled
     allowed_hosts = None  # None = do not check (only enforced when bound to loopback)
     tls_timeout = 15      # seconds for the TLS handshake of a new connection (HTTPS only)
     timeout = 60          # seconds a connection may sit idle or send too slowly (otherwise a silent client would hold its thread for ever)
@@ -3214,7 +3906,7 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def _send(self, code, body: bytes, ctype="application/json; charset=utf-8"):
+    def _send(self, code, body: bytes, ctype="application/json; charset=utf-8", headers=()):
         if len(body) > 2048 and "gzip" in self.headers.get("Accept-Encoding", "").lower():      # a few hundred devices is a big JSON every 5 s: shrink it ~10x
             body = gzip.compress(body, 4)
             gz = True
@@ -3230,6 +3922,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        for k, v in headers:
+            self.send_header(k, v)
         if ctype.startswith("text/html"):
             self.send_header("Content-Security-Policy",
                              "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
@@ -3238,15 +3932,74 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _json(self, obj, code=200):
-        self._send(code, json.dumps(obj).encode("utf-8"))
+    def _json(self, obj, code=200, headers=()):
+        self._send(code, json.dumps(obj).encode("utf-8"), headers=headers)
 
     def _host_ok(self):
         return self.allowed_hosts is None or self.headers.get("Host", "") in self.allowed_hosts
 
-    def _edit_ok(self, token=None):
+    def _login_on(self):
+        return self.auth is not None and self.auth.required()
+
+    def _cookie_token(self):
+        for part in self.headers.get("Cookie", "").split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == SESSION_COOKIE:
+                return v
+        return ""
+
+    def _load_session(self, active):
+        t = self._cookie_token()
+        return self.auth.sessions.lookup(t, active) if t else None
+
+    def _cookie(self, key, max_age):
+        c = f"{SESSION_COOKIE}={key}; Path=/; HttpOnly; SameSite=Strict; Max-Age={max_age}"
+        return ("Set-Cookie", c + ("; Secure" if (self.server.tls is not None or self.secure_cookie) else ""))
+
+    def _csrf_ok(self):
+        """A state-changing request must carry the session's own token (the page has it; a page of another site has not)."""
+        got = self.headers.get("X-Edit-Token", "").encode("utf-8", "replace")
+        return bool(self._sess) and bool(got) and hmac.compare_digest(got, self._sess["csrf"].encode("ascii"))
+
+    def _edit_ok(self, token=None, write=False):
+        """May this request change things (or read what only an editor may see)? Signed-in mode: an administrator whose password is not
+        awaiting a change; a write also needs the session's token. Older mode: the edit token."""
+        if self._login_on():
+            s = self._sess
+            return bool(s) and s["role"] == "admin" and not s["must_change"] and (self._csrf_ok() if write else True)
         got = (token if token is not None else self.headers.get("X-Edit-Token", "")).encode("utf-8", "replace")
         return bool(got) and hmac.compare_digest(got, self.edit_token.encode("utf-8"))
+
+    def _locked(self):
+        if self._login_on():
+            return self._json({"error": "This needs an administrator account."}, 403)
+        return self._json({"error": "editing is locked - open the page with ?token=..."}, 403)
+
+    def _body(self, limit=MAX_BODY):
+        """The JSON object of a POST, or None after the error has been sent."""
+        try:
+            n = int(self.headers.get("Content-Length", "0"))
+            if n < 0 or n > limit:
+                self._json({"error": "body too large"}, 413)
+                return None
+            data = json.loads(self.rfile.read(n) or b"{}")
+        except (ValueError, json.JSONDecodeError):
+            self._json({"error": "bad request"}, 400)
+            return None
+        if not isinstance(data, dict):
+            self._json({"error": "bad request"}, 400)
+            return None
+        return data
+
+    def _login_page(self):
+        note = "" if self.auth.users.any() else "No account exists yet. On the server, run:  sudo channelview-user add NAME --role admin"
+        return self._with_custom_css(login_page(note))      # the form follows the administrator's own colours too
+
+    def _with_custom_css(self, html):
+        css = self.app.custom_css()
+        if css:                                               # inline, so the page's security policy needs no exception
+            html = html.replace("</head>", '<style id="custom-css">\n' + css + "\n</style>\n</head>", 1)
+        return html
 
     def _is_local(self):
         """Opened on this very computer: such a page gets the edit token built in. A request that a reverse proxy on this computer passes on
@@ -3261,20 +4014,37 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         q = {k: v[0] for k, v in urllib.parse.parse_qs(url.query).items()}
         path, app = url.path, self.app
+        self._sess = None
+        if self._login_on():
+            self._sess = self._load_session(active=(path == "/" or self.headers.get("X-CV-Active") == "1"))
+            if self._sess is None:      # nobody signed in gets the form and nothing else
+                if path == "/":
+                    return self._send(200, self._login_page().encode("utf-8"), "text/html; charset=utf-8")
+                return self._json({"error": "login required", "login": True}, 401)
+            if self._sess["must_change"] and path not in ("/", "/api/layout"):
+                return self._json({"error": "Choose a new password first.", "must_change": True}, 403)
         try:
             if path == "/":
-                token = self.edit_token if (self._is_local() or self._edit_ok(q.get("token", ""))) else ""
-                html = PAGE.replace("__EDIT_TOKEN__", token)
-                css = app.custom_css()
-                if css:                                           # inline, so the page's security policy needs no exception
-                    html = html.replace("</head>", '<style id="custom-css">\n' + css + "\n</style>\n</head>", 1)
+                if self._login_on():
+                    token = self._sess["csrf"]            # (named EDIT_TOKEN in the page; here it is the session's own request token)
+                else:
+                    token = self.edit_token if (self._is_local() or self._edit_ok(q.get("token", ""))) else ""
+                html = self._with_custom_css(PAGE.replace("__EDIT_TOKEN__", token))
                 return self._send(200, html.encode("utf-8"), "text/html; charset=utf-8")
             if path == "/api/layout":
+                me = self.auth.public(self._sess) if self._sess else None
+                if me and me["must_change"]:
+                    return self._json({"auth": True, "user": me, "can_edit": False})
                 return self._json({"layout": app.store.get(), "can_edit": self._edit_ok(), "demo": app.is_demo,
                                    "mode": "server", "conn": {"active": app.active, "name": app.conn_name},
+                                   "auth": self._login_on(), "user": me,
                                    "unconfigured": app.source is None and not app.is_demo,
                                    "defaults": {"graph_minutes": app.cfg["graph_minutes"],
                                                 "refresh_seconds": snap_to(app.cfg["poll_seconds"], REFRESH_CHOICES)}})
+            if path == "/api/users":
+                if not (self._login_on() and self._edit_ok()):
+                    return self._locked()
+                return self._json({"users": [user_view(self.auth, u) for u in self.auth.users.list()], "me": self._sess["user"]})
             if path == "/api/linkgraph":      # read-only like /api/view, and only for a link that exists in the layout
                 tab = next((t for t in app.store.get()["tabs"] if t["id"] == q.get("tab")), None)
                 if not tab:
@@ -3283,7 +4053,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(g) if g is not None else self._json({"error": "no such link"}, 404)
             if path == "/api/connections":
                 if not self._edit_ok():
-                    return self._json({"error": "editing is locked - open the page with ?token=..."}, 403)
+                    return self._locked()
                 return self._json(app.connections_info())
             if path == "/api/view":
                 tab = next((t for t in app.store.get()["tabs"] if t["id"] == q.get("tab")), None)
@@ -3293,7 +4063,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json(app.view(tab))
             if path in ("/api/hosts", "/api/groups", "/api/interfaces"):
                 if not self._edit_ok():
-                    return self._json({"error": "editing is locked - open the page with ?token=..."}, 403)
+                    return self._locked()
                 if app.source is None:
                     return self._json({"error": app.status["error"]}, 502)
                 if path == "/api/hosts":
@@ -3313,21 +4083,37 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._host_ok():
             return self._json({"error": "bad host header"}, 403)
-        if urllib.parse.urlparse(self.path).path == "/api/refresh":     # harmless and throttled, so view-only displays may use it too
-            st = self.app.refresh()
-            return self._json({"ok": bool(st.get("ok")), "status": st})
-        if not self._edit_ok():
-            return self._json({"error": "editing is locked - open the page with ?token=..."}, 403)
-        try:
-            n = int(self.headers.get("Content-Length", "0"))
-            if n < 0 or n > MAX_BODY:
-                return self._json({"error": "body too large"}, 413)
-            data = json.loads(self.rfile.read(n) or b"{}")
-        except (ValueError, json.JSONDecodeError):
-            return self._json({"error": "bad request"}, 400)
-        path, app = urllib.parse.urlparse(self.path).path, self.app
-        if not isinstance(data, dict):
-            return self._json({"error": "bad request"}, 400)
+        path = urllib.parse.urlparse(self.path).path
+        self._sess = None
+        if self._login_on():
+            if path == "/api/login":
+                return self._login()
+            self._sess = self._load_session(active=self.headers.get("X-CV-Active") == "1")
+            if self._sess is None:
+                return self._json({"error": "login required", "login": True}, 401)
+            if not self._csrf_ok():
+                return self._json({"error": "This page is out of date - reload it."}, 403)
+            if path == "/api/logout":
+                return self._logout()
+            if path == "/api/account/password":
+                return self._account_password()
+            if self._sess["must_change"]:
+                return self._json({"error": "Choose a new password first.", "must_change": True}, 403)
+            if path == "/api/refresh":      # harmless and throttled, so view-only accounts may use it too
+                st = self.app.refresh()
+                return self._json({"ok": bool(st.get("ok")), "status": st})
+            if self._sess["role"] != "admin":
+                return self._locked()
+        else:
+            if path == "/api/refresh":     # harmless and throttled, so view-only displays may use it too
+                st = self.app.refresh()
+                return self._json({"ok": bool(st.get("ok")), "status": st})
+            if not self._edit_ok():
+                return self._locked()
+        data = self._body()
+        if data is None:
+            return
+        app = self.app
         if path == "/api/layout":
             try:
                 app.store.put(data.get("layout"))
@@ -3335,6 +4121,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"error": f"invalid layout: {e}"}, 400)
             app.wake.set()
             return self._json({"ok": True})
+        if path.startswith("/api/users/") and self._login_on():
+            return self._users_post(path[len("/api/users/"):], data)
         if path.startswith("/api/connections/"):
             try:
                 return self._connections_post(path[len("/api/connections/"):], data)
@@ -3343,6 +4131,97 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json({"error": f"{type(e).__name__}: {e}"}, 500)
         self._json({"error": "not found"}, 404)
+
+    # ---- sign-in, sign-out, passwords, accounts
+    def _login(self):
+        if "json" not in self.headers.get("Content-Type", "").lower():      # a page of another site cannot send this without a CORS preflight, which fails
+            return self._json({"error": "bad request"}, 415)
+        data = self._body(8192)
+        if data is None:
+            return
+        try:
+            key, u = self.auth.login(data.get("username"), data.get("password"), self.client_address[0])
+        except LoginError as e:
+            return self._json({"error": str(e), "retry_after": e.retry_after}, e.status,
+                              [("Retry-After", str(e.retry_after))] if e.retry_after else ())
+        self._json({"ok": True, "must_change": u["must_change"]}, headers=[self._cookie(key, 31536000)])
+
+    def _logout(self):
+        self.auth.sessions.delete(self._cookie_token())
+        audit("sign-out", user=self._sess["user"], ip=self.client_address[0])
+        self._json({"ok": True}, headers=[self._cookie("", 0)])
+
+    def _account_password(self):
+        data = self._body(8192)
+        if data is None:
+            return
+        a, name, ip = self.auth, self._sess["user"], self.client_address[0]
+        wait = a.by_pw.blocked(name.lower())
+        if wait:
+            return self._json({"error": f"Too many wrong passwords. Try again in {wait} s."}, 429, [("Retry-After", str(wait))])
+        u, cur, new = a.users.get(name), data.get("current"), data.get("new")
+        if not u or not isinstance(cur, str) or len(cur) > 1000 or not verify_password(cur, u["hash"]):
+            a.by_pw.fail(name.lower())
+            audit("password change refused", user=name, ip=ip)
+            return self._json({"error": "The current password is not right."}, 403)
+        if cur == new:
+            return self._json({"error": "The new password must differ from the current one."}, 400)
+        try:
+            a.users.set_password(name, new, must_change=False)
+        except AccountError as e:
+            return self._json({"error": str(e)}, 400)
+        a.sessions.delete_user(name)                  # the change ended every session of this user, this one included:
+        key = a.sessions.create(name, ip)             # this browser gets a fresh one
+        forget_initial_password(a.data_dir, name)
+        audit("password changed", user=name, ip=ip)
+        self._json({"ok": True}, headers=[self._cookie(key, 31536000)])
+
+    def _users_post(self, action, data):
+        a, me, ip = self.auth, self._sess["user"], self.client_address[0]
+        name = str(data.get("username") or "").strip()
+        mine = name.lower() == me.lower()
+
+        def flag(key):                       # true / false only: the text "false" must not switch something on
+            v = data.get(key)
+            if v is not None and not isinstance(v, bool):
+                raise AccountError(f"'{key}' must be true or false.")
+            return v
+        try:
+            if action == "add":
+                a.users.add(name, data.get("password"), data.get("role", "viewer"), data.get("idle_minutes"), bool(flag("must_change")))
+                audit("account added", by=me, user=name, role=data.get("role", "viewer"), ip=ip)
+            elif action == "update":
+                if mine and (data.get("role", "admin") != "admin" or flag("disabled")):
+                    raise AccountError("You cannot demote or disable your own account - ask another administrator.")
+                kw = {k: data[k] for k in ("role", "disabled") if k in data}
+                kw["disabled"] = flag("disabled") if "disabled" in kw else None
+                if kw["disabled"] is None:
+                    del kw["disabled"]
+                if "idle_minutes" in data:
+                    kw["idle"] = data["idle_minutes"]
+                a.users.update(name, **kw)
+                audit("account changed", by=me, user=name, ip=ip)
+            elif action == "password":
+                if mine:
+                    raise AccountError("Change your own password under Account.")
+                a.users.set_password(name, data.get("password"), bool(flag("must_change")))
+                a.sessions.delete_user(name)
+                audit("password set by administrator", by=me, user=name, ip=ip)
+            elif action == "signout":
+                a.users.signout_everywhere(name)
+                a.sessions.delete_user(name)
+                audit("signed out everywhere", by=me, user=name, ip=ip)
+            elif action == "delete":
+                if mine:
+                    raise AccountError("You cannot delete your own account.")
+                a.users.delete(name)
+                a.sessions.delete_user(name)
+                audit("account deleted", by=me, user=name, ip=ip)
+            else:
+                return self._json({"error": "not found"}, 404)
+        except AccountError as e:
+            return self._json({"error": str(e)}, 400)
+        self._json({"ok": True, "users": [user_view(a, u) for u in a.users.list()], "me": me})
 
     def _connections_post(self, action, data):
         app, conns = self.app, self.app.conns
@@ -3377,8 +4256,124 @@ class Handler(BaseHTTPRequestHandler):
         return self._json({"error": "not found"}, 404)
 
 
+def _drop_to_owner(data: Path):
+    """Run as root against a folder the service user owns (sudo channelview-user ...): become that user, so the files stay its own."""
+    if os.name != "posix" or os.geteuid() != 0:
+        return
+    try:
+        st = data.stat()
+    except OSError:
+        return
+    if st.st_uid != 0:
+        os.setgroups([])
+        os.setgid(st.st_gid)
+        os.setuid(st.st_uid)
+
+
+def _new_password(args, name):
+    """The password for `user add` / `user passwd`: random, from stdin, or asked twice on the terminal."""
+    if args.random_password:
+        return "".join(secrets.choice("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789") for _ in range(20))
+    if args.password_stdin:
+        return sys.stdin.readline().rstrip("\r\n")
+    if not sys.stdin.isatty():
+        sys.exit("channelview: give the password with --password-stdin, or let one be made with --random-password.")
+    import getpass
+    pw = getpass.getpass(f"Password for {name}: ")
+    if getpass.getpass("Repeat the password: ") != pw:
+        sys.exit("channelview: the two entries differ - nothing changed.")
+    return pw
+
+
+def user_cli(argv):
+    """channelview.py user [--data-dir DIR] list | add | passwd | set | delete | signout   -  accounts, also while the server is running."""
+    ap = argparse.ArgumentParser(prog="channelview.py user", description="Manage the ChannelView accounts. A running server sees the changes at once.")
+    ap.add_argument("--data-dir", default=os.environ.get("CHANNELVIEW_DATA", str(Path.home() / ".channelview")))
+    sub = ap.add_subparsers(dest="action", metavar="ACTION", required=True)
+
+    def pw_opts(p):
+        g = p.add_mutually_exclusive_group()
+        g.add_argument("--password-stdin", action="store_true", help="read the password from the first line of standard input")
+        g.add_argument("--random-password", action="store_true", help="make a random password and print it")
+        p.add_argument("--must-change", action="store_true", help="the user has to choose a new password at the next sign-in")
+    sub.add_parser("list", help="show the accounts")
+    p = sub.add_parser("add", help="create an account")
+    p.add_argument("name")
+    p.add_argument("--role", choices=ROLES, default="viewer", help="admin may edit; viewer only looks (default)")
+    p.add_argument("--idle", metavar="MINUTES|never", help="sign out after this long without activity (default: 60 for admin, 480 for viewer; never = a wall display)")
+    pw_opts(p)
+    p = sub.add_parser("passwd", help="set a new password (ends every session of that user)")
+    p.add_argument("name")
+    pw_opts(p)
+    p = sub.add_parser("set", help="change role, automatic sign-out, or enable / disable an account")
+    p.add_argument("name")
+    p.add_argument("--role", choices=ROLES)
+    p.add_argument("--idle", metavar="MINUTES|never")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--disable", action="store_true")
+    g.add_argument("--enable", action="store_true")
+    p = sub.add_parser("delete", help="delete an account")
+    p.add_argument("name")
+    p = sub.add_parser("signout", help="end every session of an account")
+    p.add_argument("name")
+    args = ap.parse_args(argv)
+    data = Path(args.data_dir).expanduser()
+    data.mkdir(parents=True, exist_ok=True)
+    _drop_to_owner(data)
+    store = UserStore(data / "users.json")
+    try:
+        if store.error:
+            raise AccountError(store.error)
+        if args.action == "list":
+            rows = store.list()
+            if not rows:
+                print("No accounts yet.  Create the first one:  channelview.py user add NAME --role admin")
+            for u in rows:
+                last = time.strftime("%Y-%m-%d %H:%M", time.localtime(u["last_login"])) if u["last_login"] else "never"
+                idle = f"{u['idle_minutes']} min" if u["idle_minutes"] else "never"
+                state = "DISABLED" if u["disabled"] else ("must change password" if u["must_change"] else "active")
+                print(f"{u['username']:<24} {u['role']:<7} sign-out after {idle:<9} {state:<20} last sign-in {last}")
+        elif args.action == "add":
+            idle = check_idle(args.idle, args.role)
+            pw = _new_password(args, args.name)
+            store.add(args.name, pw, args.role, idle, args.must_change)
+            print(f"Created {args.role} {args.name}." + (f"  Password: {pw}" if args.random_password else ""))
+        elif args.action == "passwd":
+            if not store.get(args.name):
+                raise AccountError("No such user.")
+            pw = _new_password(args, args.name)
+            store.set_password(args.name, pw, args.must_change)
+            if not args.must_change:
+                forget_initial_password(data, args.name)
+            print(f"New password set for {args.name}; every session of that user has ended." + (f"  Password: {pw}" if args.random_password else ""))
+        elif args.action == "set":
+            kw = {}
+            if args.role:
+                kw["role"] = args.role
+            if args.idle is not None:
+                kw["idle"] = check_idle(args.idle, args.role or (store.get(args.name) or {}).get("role", "viewer"))
+            if args.disable or args.enable:
+                kw["disabled"] = bool(args.disable)
+            if not kw:
+                raise AccountError("Nothing to change: give --role, --idle, --disable or --enable.")
+            store.update(args.name, **kw)
+            print(f"Changed {args.name}.")
+        elif args.action == "delete":
+            store.delete(args.name)
+            print(f"Deleted {args.name}.")
+        elif args.action == "signout":
+            store.signout_everywhere(args.name)
+            print(f"Every session of {args.name} has ended.")
+    except AccountError as e:
+        sys.exit(f"channelview: {e}")
+    except OSError as e:
+        sys.exit(f"channelview: cannot write the accounts file in {data}: {e}")
+
+
 def main():
-    ap = argparse.ArgumentParser(description="ChannelView - weathermap dashboard for Zabbix")
+    if len(sys.argv) > 1 and sys.argv[1] == "user":
+        return user_cli(sys.argv[2:])
+    ap = argparse.ArgumentParser(description="ChannelView - weathermap dashboard for Zabbix", epilog="Accounts:  channelview.py user --help")
     ap.add_argument("--demo", action="store_true", help="simulated Cisco devices, no Zabbix needed")
     ap.add_argument("--init", action="store_true", help="write a config.json template and exit")
     ap.add_argument("--host", default="127.0.0.1", help="bind address (use 0.0.0.0 for a LAN wall display)")
@@ -3386,8 +4381,13 @@ def main():
     ap.add_argument("--data-dir", default=os.environ.get("CHANNELVIEW_DATA", str(Path.home() / ".channelview")))
     ap.add_argument("--config", default="", help="path to config.json (default: <data-dir>/config.json)")
     ap.add_argument("--no-browser", action="store_true")
-    ap.add_argument("--token-file", default="", help="keep the edit token in this file (made owner-only at the first start) so it survives restarts - "
-                                                     "what the Debian service does; default: a new random token at every start")
+    ap.add_argument("--token-file", default="", help="(only when no account exists) keep the edit token in this file (made owner-only at the first start) "
+                                                     "so it survives restarts; default: a new random token at every start")
+    ap.add_argument("--require-login", action="store_true", help="ask for a sign-in even before the first account exists (nobody can get in until `user add`)")
+    ap.add_argument("--no-login", action="store_true", help="ignore the accounts and use the edit token instead - needed to listen on other addresses without any "
+                                                            "account; anybody who can reach the port then sees everything (not recommended)")
+    ap.add_argument("--secure-cookie", action="store_true", help="mark the sign-in cookie Secure although this server speaks plain HTTP: for a server "
+                                                                 "behind an HTTPS reverse proxy (see the README)")
     ap.add_argument("--tls-cert", default=os.environ.get("CHANNELVIEW_TLS_CERT", ""), metavar="FILE",
                     help="serve HTTPS with this certificate (PEM, with the intermediate certificates after it; also: CHANNELVIEW_TLS_CERT). "
                          "A renewed file is used without a restart. Without it the server speaks plain HTTP.")
@@ -3435,6 +4435,14 @@ def main():
     else:                                                # first run: config.json / env connection if there is one
         start, persist = ("default" if conns.get("default") else ""), True
     app = App(cfg, conns, data, start, persist)
+    auth = Auth(data, require=args.require_login)
+    if auth.users.error:
+        sys.exit(auth.users.error + "\nFix or remove the file (the server will not start without knowing who may sign in).")
+    loopback = args.host in ("127.0.0.1", "localhost", "::1")
+    if not loopback and not auth.required() and not args.no_login:
+        sys.exit(f"Not listening on {args.host}: no account exists, so anybody on the network could see your whole network map.\n"
+                 "Create the first account:  channelview.py user add NAME --role admin     (Debian package: sudo channelview-user add NAME --role admin)\n"
+                 "or start with --no-login to use the older edit-token mode (not recommended).")
 
     server, port = None, args.port
     for p in range(args.port, args.port + 20):
@@ -3445,11 +4453,16 @@ def main():
             continue
     if server is None:
         sys.exit(f"No free port in {args.port}-{args.port + 19}.")
-    loopback = args.host in ("127.0.0.1", "localhost", "::1")
     server.tls = tls
     scheme = "https" if tls else "http"
     Handler.app = app
-    Handler.edit_token = load_edit_token(Path(args.token_file).expanduser()) if args.token_file else secrets.token_urlsafe(24)
+    Handler.auth = None if args.no_login else auth
+    Handler.secure_cookie = args.secure_cookie
+    signin = Handler.auth is not None and Handler.auth.required()
+    if signin:
+        Handler.edit_token = ""                          # no account-less editing: nothing to keep in a file
+    else:
+        Handler.edit_token = load_edit_token(Path(args.token_file).expanduser()) if args.token_file else secrets.token_urlsafe(24)
     Handler.allowed_hosts = {f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}"} if loopback else None
     threading.Thread(target=app.loop, daemon=True).start()
 
@@ -3458,14 +4471,21 @@ def main():
     print(f"Data folder: {data}")
     if app.source is None:
         print("! " + app.status["error"])
-    if not loopback:
-        print(f"Listening on {args.host}:{port}. Viewing needs no login; to edit from another machine open")
-        if args.token_file:      # a stored token stays out of the log: the log may be read by more people than the file
-            print(f"  {scheme}://<this-host>:{port}/?token=<the token in {args.token_file}>")
-        else:
-            print(f"  {scheme}://<this-host>:{port}/?token={Handler.edit_token}")
-    if not tls and not loopback:
-        print("  (plain HTTP: the token and everything else cross the network readable - --tls-cert / --tls-key switch on HTTPS)")
+    if signin:
+        print(f"Sign-in is required ({len(auth.users.list())} account(s)); manage them with:  channelview.py user --data-dir {data} list|add|passwd|set|delete")
+        if not tls and not loopback and not args.secure_cookie:
+            print("  (plain HTTP: passwords cross the network readable - --tls-cert / --tls-key switch on HTTPS)")
+    else:
+        if args.no_login and auth.users.any():
+            print("! --no-login: the accounts are ignored and the edit token is used instead.")
+        if not loopback:
+            print(f"Listening on {args.host}:{port}. Viewing needs no login; to edit from another machine open")
+            if args.token_file:      # a stored token stays out of the log: the log may be read by more people than the file
+                print(f"  {scheme}://<this-host>:{port}/?token=<the token in {args.token_file}>")
+            else:
+                print(f"  {scheme}://<this-host>:{port}/?token={Handler.edit_token}")
+        if not tls and not loopback:
+            print("  (plain HTTP: the token and everything else cross the network readable - --tls-cert / --tls-key switch on HTTPS)")
     if not args.no_browser and loopback:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()
     try:
@@ -3474,6 +4494,7 @@ def main():
         print("\nBye.")
     finally:
         server.server_close()
+        auth.sessions.flush()
 
 
 if __name__ == "__main__":

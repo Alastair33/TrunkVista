@@ -12,6 +12,7 @@ ChannelView is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behi
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
 - **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, proxy, OS, model, …
 - **Playlists** and a kiosk mode for NOC wall displays, a built-in editor, a connection menu for your Zabbix API.
+- **Sign-in** with **administrator** and **viewer** accounts (set up while you install), an automatic sign-out you choose per account (or *never*, for a wall display), and a login-throttle. [Details](#accounts-and-sign-in)
 - **Dark and light** colour themes (dark is the default), switched with a button in the header or the **T** key; *Auto* follows the system.
 - One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
 
@@ -194,8 +195,8 @@ Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
    sudo apt install ./channelview-latest.deb
    ```
 
-   This creates the `channelview` system user, installs the systemd service `channelview`, enables it and starts it.
-3. Open `http://127.0.0.1:8088` on that machine, click the status chip at the top (or press **C**) and add your Zabbix: URL (`https://zabbix.example.com`) and an **API token** (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**.
+   This creates the `channelview` system user, installs the systemd service `channelview`, enables it and starts it. **It asks for the user name and password of the first administrator** (at least 10 characters). Leave the password empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
+3. Open `http://127.0.0.1:8088` on that machine, **sign in**, click the status chip at the top (or press **C**) and add your Zabbix: URL (`https://zabbix.example.com`) and an **API token** (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**.
 
 Check on it:
 
@@ -203,6 +204,59 @@ Check on it:
 systemctl status channelview
 journalctl -u channelview -f
 ```
+
+### Accounts and sign-in
+
+**Everybody signs in** - viewing needs an account as well as editing. There are two roles:
+
+| Role | May |
+|---|---|
+| **admin** | everything: edit tabs, devices and links, the Zabbix connections, and the accounts of the others |
+| **viewer** | look: tabs, playlists, kiosk mode, heatmap, graphs, and *Refresh now*. Nothing else - not even the list of Zabbix connections |
+
+**At the installation** `apt install` asks for the administrator's user name (default `admin`) and password. If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/channelview/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
+
+To answer the questions in advance (an automated installation):
+
+```
+echo 'channelview channelview/admin_user string admin
+channelview channelview/admin_password password CHOOSE-A-LONG-PASSWORD
+channelview channelview/admin_password_again password CHOOSE-A-LONG-PASSWORD' | sudo debconf-set-selections
+sudo DEBIAN_FRONTEND=noninteractive apt install ./channelview-latest.deb
+```
+
+The password is not kept in debconf's database after the installation, but a preseed file you wrote still holds it - delete it afterwards.
+
+**Upgrading from 1.2.x or older:** those versions had no sign-in (viewing was open, editing used the edit token). The upgrade creates the administrator as above, removes the old `edit_token` and from then on asks everybody to sign in. A `channelview-update` that runs from the timer cannot ask: it makes the random-password account, so read `/var/lib/channelview/initial-admin-password` (or run `sudo channelview-user passwd admin`) after such an update.
+
+**Managing accounts** - as an administrator, in the page: the button with your name in the header opens *Account* (change your own password, sign out) and, for administrators, *Users…* (add, change role, automatic sign-out, disable, set a password, sign out everywhere, delete). Or on the server, which also works when nobody can sign in:
+
+```
+sudo channelview-user list
+sudo channelview-user add anna --role viewer                       # asks for the password twice
+sudo channelview-user add wall1 --idle never --password-stdin      # a wall display; the password comes from standard input
+sudo channelview-user add bob --role admin --random-password       # prints the password once
+sudo channelview-user passwd anna --must-change                    # new password; anna has to change it at the next sign-in
+sudo channelview-user set anna --idle 120                          # sign out after 2 hours without use
+sudo channelview-user set anna --disable                           # or --enable, --role admin
+sudo channelview-user signout anna
+sudo channelview-user delete anna
+```
+
+A running server sees these changes at once. **Locked out?** Every administrator forgot the password: `sudo channelview-user passwd NAME --must-change`.
+
+**Automatic sign-out (per account).** Idle time counts from what a person does on the page (a click, a key, a touch) - the page refreshing itself does not count. The defaults are 60 minutes for an administrator and 8 hours for a viewer; `--idle never` (or *Never* in the Users dialog) is for a **wall display** that has to stay on. The sign-in itself is remembered by the browser and by the server (it survives a restart and an update), so a wall display needs to be signed in once. Give such an account the `viewer` role: a display that is never signed out should not be able to change anything.
+
+**Good to know**
+
+- Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes (600 000 rounds) in `users.json`; sessions as hashes of a random key in `sessions.json`; both owner-only. A new password, disabling an account or *sign out everywhere* ends all sessions of that account.
+- Wrong passwords are slowed down: 10 failures from one address in 5 minutes, or 20 for one account in 15 minutes, block further tries for a while (HTTP 429). Behind a reverse proxy all visitors share the proxy's address, so the limit for the address applies to all of them together; the limit per account protects them in any case.
+- The last enabled administrator cannot be deleted, demoted or disabled, and nobody can demote, disable or delete **their own** account.
+- Every sign-in, failed attempt and account change is in the log (`journalctl -u channelview | grep accounts`) - never a password or a session key.
+- The session cookie is `HttpOnly` and `SameSite=Strict`, and marked `Secure` when the dashboard serves HTTPS itself. Changes are only accepted with a request token that belongs to the session, so another website cannot make your browser change anything.
+- The Zabbix API token never reaches the browser, whoever is signed in.
+- Do not run the program with `--no-login` on a network: it ignores the accounts and falls back to the old behaviour (everyone can view, editing needs the edit token). Without any account the program refuses to listen on other addresses than the local computer.
+- Running it by hand (without the package): `python3 channelview.py user add NAME --role admin` creates the first account in the data folder (`~/.channelview` by default); `--require-login` makes a server ask for a sign-in even before the first account exists.
 
 ### Making it reachable from other PCs / wall displays
 
@@ -214,13 +268,12 @@ CHANNELVIEW_HOST=0.0.0.0
 
 then `sudo systemctl restart channelview` (open the port in your firewall if you run one).
 
-- **Viewing needs no login** – anyone who can reach the port sees the dashboard. Put it on a trusted network.
-- **Editing needs the edit token**: `sudo cat /var/lib/channelview/edit_token`, then open `https://<server>:8088/?token=<token>` once in the browser you edit from. Browsers on the server itself (127.0.0.1) are trusted automatically.
+- **Everybody has to sign in** (see above): create the accounts for the people and wall displays first, then change the setting. Without HTTPS the passwords cross the network readable - switch it on (next section) before other PCs open the page.
 - A port below 1024 needs `sudo systemctl edit channelview` → `[Service]` / `AmbientCapabilities=CAP_NET_BIND_SERVICE`.
 
 ### HTTPS (do this as soon as other PCs open it)
 
-Without HTTPS the edit token and everything else cross the network readable. The dashboard serves HTTPS **itself** – no Apache or Nginx needed.
+Without HTTPS the passwords, the session cookie and everything else cross the network readable. The dashboard serves HTTPS **itself** – no Apache or Nginx needed.
 
 ```
 sudo channelview-cert          # self-signed certificate for this machine -> /etc/channelview/tls/
@@ -248,7 +301,7 @@ sudo systemctl restart channelview      # now:  https://<server>:8088/
   install -D -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/channelview/tls/server.crt
   install -D -m 0640 -g channelview "$RENEWED_LINEAGE/privkey.pem" /etc/channelview/tls/server.key
   ```
-- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools), run it on **another machine**, require authentication there, and let only that machine reach the port. A proxy on the *same* machine connects from 127.0.0.1, which the dashboard treats as the local administrator – every viewer behind it could get the edit token. (The dashboard does not hand the token out to a request that carries proxy headers such as `X-Forwarded-For`, `X-Real-IP`, `Forwarded` or `Via`, but not every proxy sends them, so do not rely on it.)
+- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools): the proxy must speak HTTPS to the browsers, and you add `--secure-cookie` to `CHANNELVIEW_ARGS` in `/etc/default/channelview` so that the sign-in cookie is marked `Secure` although the proxy talks plain HTTP to the dashboard. While the dashboard listens on `127.0.0.1` only, it accepts requests whose `Host` header is `127.0.0.1:<port>` / `localhost:<port>` (protection against DNS rebinding), so the proxy has to send that (nginx: `proxy_set_header Host 127.0.0.1:8088;`), or the dashboard has to listen on a non-loopback address that only the proxy can reach. Accounts are always required, so a proxy on the same machine does not open anything up.
 
 ## Updating from GitHub
 
@@ -260,7 +313,7 @@ sudo channelview-update --version 1.0.0 --force     # go back to a given release
 sudo channelview-update --channel prerelease        # release candidates too (or CHANNELVIEW_UPDATE_CHANNEL=prerelease in /etc/default/channelview)
 ```
 
-It reads `CHANNELVIEW_UPDATE_REPO` from `/etc/default/channelview` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/channelview`, your connections, layouts and the edit token are kept.
+It reads `CHANNELVIEW_UPDATE_REPO` from `/etc/default/channelview` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/channelview`, your connections, layouts and accounts are kept.
 
 **Automatic updates** are off. To check every night (about 03:30, random delay up to an hour) and install:
 
@@ -391,19 +444,20 @@ It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the releas
 | What | Where |
 |---|---|
 | Program | `/usr/lib/channelview/channelview.py` (command `channelview`) |
-| Updater, certificate helper | `/usr/bin/channelview-update`, `/usr/bin/channelview-cert` |
+| Updater, certificate helper, account manager | `/usr/bin/channelview-update`, `/usr/bin/channelview-cert`, `/usr/bin/channelview-user` |
 | Service, update service and timer | `/lib/systemd/system/channelview*.service`, `channelview-update.timer` |
 | Settings (listen address, port, update repository / channel) | `/etc/default/channelview` – kept on upgrades |
-| Data: connections (Zabbix API token, owner-only), layouts, edit token | `/var/lib/channelview/` (`connections.json`, `dashboard*.json`, `edit_token`) |
+| Data: connections (Zabbix API token, owner-only), layouts, accounts (password hashes, owner-only), sessions | `/var/lib/channelview/` (`connections.json`, `dashboard*.json`, `users.json`, `sessions.json`) |
+| The random first password, until it has been changed (root only) | `/var/lib/channelview/initial-admin-password` |
 | Your style rules (optional) | `/var/lib/channelview/custom.css` |
 | HTTPS certificate and key (optional) | `/etc/channelview/tls/` (`server.crt`, `server.key`) |
 | Signing key for updates (optional) | `/etc/channelview/release-key.gpg` |
 
 The service runs as its own user `channelview`, sandboxed by systemd (no access to home directories, read-only system, only its data folder is writable).
 
-**Backup:** copy `/var/lib/channelview` (it holds the API token – treat the copy as a secret).
+**Backup:** copy `/var/lib/channelview` (it holds the API token and the password hashes – treat the copy as a secret).
 
-**Remove:** `sudo apt remove channelview` removes the program, keeps settings and data. `sudo apt purge channelview` also removes `/etc/default/channelview`. Data, the user and `/etc/channelview` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/channelview /etc/channelview && sudo deluser --system channelview`.
+**Remove:** `sudo apt remove channelview` removes the program, keeps settings and data. `sudo apt purge channelview` also removes `/etc/default/channelview`. Data (including the accounts), the user and `/etc/channelview` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/channelview /etc/channelview && sudo deluser --system channelview`.
 
 ## Troubleshooting
 
@@ -412,7 +466,11 @@ The service runs as its own user `channelview`, sandboxed by systemd (no access 
 | Page does not open | `systemctl status channelview`, `journalctl -u channelview -n 50`; port taken? change `CHANNELVIEW_PORT` |
 | Service stops right after enabling HTTPS | `journalctl -u channelview -n 20` – "Cannot use the TLS certificate": wrong path, key does not fit, or the key is not readable by the group `channelview` |
 | Browser: "not secure" / certificate warning | the certificate is self-signed: import `server.crt` on that PC, or use a certificate from your CA / Let's Encrypt; the name in the address must be one of the names `channelview-cert` printed |
-| "editing is locked" | open the page with `?token=…` (see above) |
+| Cannot sign in: "Wrong user name or password" | the same message is shown for an unknown name, a wrong password and a disabled account; `sudo channelview-user list` shows the accounts, `sudo channelview-user passwd NAME` sets a new password |
+| "Too many failed attempts" | wait the number of seconds it says (the log tells who and from where: `journalctl -u channelview \| grep accounts`) |
+| Signed out again and again | the account's automatic sign-out is too short for the use: `sudo channelview-user set NAME --idle never` (wall display) or a longer time |
+| Page says "No account exists yet" | the installation could not make one: `sudo channelview-user add NAME --role admin` |
+| "This needs an administrator account" | you are signed in as a viewer |
 | Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** |
 | Updater: "no stable release" | the repository has no non-pre-release release yet, or `CHANNELVIEW_UPDATE_REPO` is wrong; private repository → token file |
 | Updater: "releases must be signed" | `/etc/channelview/release-key.gpg` exists but the release is not signed – sign it, or remove the key file |
@@ -424,7 +482,7 @@ Clone the repository only to work on the program. To *use* ChannelView take the 
 
 ```
 python3 channelview.py --demo                       # run from a checkout
-python3 -m unittest discover -s tests -v              # unit tests: app, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git)
+python3 -m unittest discover -s tests -v              # unit tests: app, accounts and sign-in, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git)
 python3 tools/build_demo.py channelview_demo.html   # rebuild the standalone demo page after changing the dashboard page
 packaging/build_deb.sh                                # -> dist/channelview_<version>_all.deb + SHA256SUMS (needs dpkg-deb)
 sudo tests/e2e_debian.sh                              # really installs / upgrades / purges the package - only on a throw-away machine

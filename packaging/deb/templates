@@ -1,0 +1,26 @@
+Template: channelview/admin_user
+Type: string
+Default: admin
+Description: User name of the ChannelView administrator:
+ ChannelView asks everybody to sign in. Choose the user name of the first
+ account: an administrator who can edit the dashboard and manage the other
+ accounts (later: sudo channelview-user, or the account menu in the page).
+
+Template: channelview/admin_password
+Type: password
+Description: Password of the ChannelView administrator:
+ At least 10 characters. If you leave this empty, a random password is made. It
+ is shown at the end of the installation when you install from a terminal, and
+ kept, readable by root only, in /var/lib/channelview/initial-admin-password
+ until you have chosen your own at the first sign-in.
+
+Template: channelview/admin_password_again
+Type: password
+Description: Repeat the password:
+ Type the same password again.
+
+Template: channelview/password_problem
+Type: error
+Description: The passwords differ or are too short
+ The two entries must be the same and have at least 10 characters. Try again,
+ or leave the password empty to get a random one.

@@ -184,6 +184,21 @@ table.dt{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;f
 .mbox .mb .row{align-items:flex-start}.mbox .mb .row .fld{flex:1}
 .mbox .mb ul{margin:6px 0 0;padding-left:20px}.mbox .mb li{margin:3px 0;font-size:12px}
 .mbox .mf{display:flex;justify-content:flex-end;gap:8px;padding:10px 18px 16px}
+#btn-user{max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mbox.wide{width:min(940px,100%)}
+.utbl{width:100%;border-collapse:collapse;font-size:12.5px}
+.utbl th{text-align:left;font-weight:500;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.utbl td{padding:6px;border-bottom:1px solid var(--line);vertical-align:middle}
+.utbl td.nm{font-weight:600;min-width:120px;overflow-wrap:anywhere}
+.utbl td.nm small{font-weight:400;overflow-wrap:normal}
+.utbl .tag{font-weight:400;font-size:11px;color:var(--muted);margin-left:4px}
+.utbl .acts{display:flex;gap:6px;flex-wrap:wrap}
+.utbl .acts button{padding:2px 8px;font-size:12px}
+.utbl small{display:block;color:var(--muted);font-size:11px}
+.uadd{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:4px 10px;align-items:end;margin-top:6px}
+.uaddf{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:8px;flex-wrap:wrap}
+.chk{display:flex;gap:6px;align-items:center;font-size:12px;color:var(--muted);margin:6px 0}
+.mbox .mb h4{margin:14px 0 2px;font-size:13px}
 button.dangerbtn{background:#b91c1c;border-color:#ef4444;color:#fff}button.dangerbtn:hover{background:#dc2626}
 .devbar select{padding:4px 8px}
 .devbar .seg button{padding:4px 10px}
@@ -265,6 +280,7 @@ body.kiosk .cta{display:none}
     <button id="btn-refresh" title="Refresh now: reconnect to Zabbix and reload the data (R)" aria-label="Refresh"><span>&#x21BB;</span></button>
     <span class="chip" id="viewonly" hidden>view only</span>
     <button id="btn-edit" hidden>Edit</button>
+    <button id="btn-user" type="button" hidden></button>
     <button id="btn-theme" type="button" title="Colour theme (T)">&#9680;</button>
     <button id="btn-kiosk" title="Kiosk mode (K)">Kiosk</button>
     <button id="btn-full" title="Fullscreen (F)">&#x26F6;</button>
@@ -1108,14 +1124,20 @@ function svg(tag, attrs = {}, ...kids) {
   for (const c of kids.flat(Infinity)) if (c) e.append(c);
   return e;
 }
+// Automatic sign-out counts the time since a PERSON last did something: the page tells the server (X-CV-Active) when the mouse, a key or a touch was used
+// since the previous request. The refreshing the page does by itself does not count, so a wall display with an automatic sign-out does sign out.
+let userActive = true;
+for (const ev of ["pointerdown", "pointermove", "keydown", "wheel", "touchstart"]) addEventListener(ev, () => { userActive = true; }, { passive: true, capture: true });
 async function api(path, opts = {}) {
+  const act = userActive; userActive = false;
   const r = await fetch(path, {
     method: opts.body ? "POST" : "GET",
-    headers: { "Content-Type": "application/json", "X-Edit-Token": EDIT_TOKEN },
+    headers: { "Content-Type": "application/json", "X-Edit-Token": EDIT_TOKEN, "X-CV-Active": act ? "1" : "0" },
     body: opts.body ? JSON.stringify(opts.body) : undefined,
   });
   let j = null;
   try { j = await r.json(); } catch (e) {}
+  if (r.status === 401 && j && j.login) { location.reload(); throw new Error("Signed out - sign in again."); }      // the session ended: the server shows the sign-in page
   if (!r.ok) throw new Error((j && j.error) || "HTTP " + r.status);
   return j;
 }
@@ -1156,6 +1178,7 @@ renderTheme();
 
 // ---------- state
 let L = null, canEdit = false, editing = false, tabId = null, view = null, status = null;
+let ME = null, modalLock = false;      // ME: the signed-in account {name, role, idle_minutes, must_change}; null without accounts (and in the standalone demo)
 let sel = null, dragging = false, suppressClick = false, showIf = true;
 try { showIf = localStorage.getItem("showIf") !== "0"; } catch (e) {}
 const play = { id: null, idx: 0, running: false, remaining: 0, total: 0 };
@@ -2210,7 +2233,7 @@ addEventListener("keydown", e => {
 });
 
 // A small confirmation window used by Modify and Delete (and by the editor's own delete buttons).
-function closeModal() { const m = $("#mdl"); m.hidden = true; m.replaceChildren(); }
+function closeModal() { if (modalLock) return; const m = $("#mdl"); m.hidden = true; m.replaceChildren(); }
 function openModal(title, kids, actions) {
   const m = $("#mdl"), box = el("div", { class: "mbox", role: "dialog", "aria-modal": "true", "aria-label": title },
     el("div", { class: "mh" }, el("b", {}, title), btn("✕", closeModal, "x")), el("div", { class: "mb" }, kids), el("div", { class: "mf" }, actions));
@@ -2222,6 +2245,107 @@ function openModal(title, kids, actions) {
   return box;
 }
 const mErr = box => { let e = box.querySelector(".merr"); if (!e) { e = el("div", { class: "box badb merr" }); box.querySelector(".mb").append(e); } return e; };
+
+// ---------- accounts: who is signed in, change the password, (administrators) manage users and their automatic sign-out
+const IDLE_CHOICES = [[15, "15 minutes"], [30, "30 minutes"], [60, "1 hour"], [240, "4 hours"], [480, "8 hours"], [1440, "24 hours"], [0, "Never (wall display)"]];
+const idleText = m => m ? "after " + (IDLE_CHOICES.find(c => c[0] === m) || [0, m + " minutes"])[1] + " without activity" : "never";
+const roleText = r => r === "admin" ? "administrator" : "viewer";
+function renderUser() {
+  const b = $("#btn-user"); b.hidden = !ME;
+  if (ME) { b.textContent = ME.name; b.title = "Signed in as " + ME.name + " (" + roleText(ME.role) + ") - account, password, sign out"; }
+}
+function idleSelect(value, onchange) {
+  const ch = IDLE_CHOICES.some(c => c[0] === value) ? IDLE_CHOICES : [[value, value + " minutes"], ...IDLE_CHOICES];
+  const s = el("select", { title: "Signs the account out after this long without anybody using the page. Never: for a wall display." }, ch.map(c => el("option", { value: c[0] }, c[1])));
+  s.value = String(value);
+  if (onchange) s.addEventListener("change", () => onchange(parseInt(s.value, 10)));
+  return s;
+}
+function genPassword() { const A = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"; return Array.from(crypto.getRandomValues(new Uint8Array(16)), b => A[b % A.length]).join(""); }
+async function signOut() { try { await api("/api/logout", { body: {} }); } catch (e) {} location.reload(); }
+function openAccount() {
+  openModal("Account", [
+    el("p", {}, "Signed in as ", el("b", {}, ME.name), " (" + roleText(ME.role) + ")."),
+    el("p", { class: "muted" }, "Automatic sign-out: " + idleText(ME.idle_minutes) + ". An administrator can change that.")],
+    [ME.role === "admin" ? btn("Users…", () => openUsers()) : null, btn("Change password", () => openPassword(false)), btn("Sign out", signOut, "primary"), btn("Close", closeModal)]);
+}
+function openPassword(forced) {
+  const cur = el("input", { type: "password", autocomplete: "current-password", maxlength: 1000 });
+  const n1 = el("input", { type: "password", autocomplete: "new-password", maxlength: 200 }), n2 = el("input", { type: "password", autocomplete: "new-password", maxlength: 200 });
+  const box = openModal(forced ? "Choose a new password" : "Change password", [
+    forced ? el("div", { class: "box warnb" }, "This account was set up with a temporary password. Choose your own to continue.") : null,
+    fld("Current password", cur), fld("New password (at least 10 characters)", n1), fld("New password again", n2)],
+    [forced ? null : btn("Cancel", closeModal), btn("Change password", save, "primary")]);
+  if (forced) { modalLock = true; const x = box.querySelector(".mh .x"); if (x) x.remove(); }
+  async function save() {
+    const fail = m => { mErr(box).textContent = m; };
+    if (n1.value.length < 10) return fail("Use at least 10 characters.");
+    if (n1.value !== n2.value) return fail("The two new passwords differ.");
+    try { await api("/api/account/password", { body: { current: cur.value, new: n1.value } }); location.reload(); }
+    catch (e) { fail(e.message); }
+  }
+}
+function openSetPassword(u) {
+  const pw = el("input", { type: "text", autocomplete: "off", spellcheck: "false", maxlength: 200, value: genPassword() });
+  const mc = el("input", { type: "checkbox" }); mc.checked = u.role === "admin";
+  const box = openModal("Password for " + u.username, [
+    el("p", { class: "muted" }, "Every session of this account ends. Give the person the new password; it is not shown again."),
+    fld("New password (at least 10 characters)", pw),
+    el("label", { class: "chk" }, mc, el("span", {}, "Ask for a new password at the next sign-in (leave off for a wall display)"))],
+    [btn("Cancel", () => openUsers()), btn("Set password", async () => {
+      try { await api("/api/users/password", { body: { username: u.username, password: pw.value, must_change: mc.checked } }); openUsers(); }
+      catch (e) { mErr(box).textContent = e.message; }
+    }, "primary")]);
+}
+async function openUsers() {
+  let data, msg = "";
+  try { data = await api("/api/users"); }
+  catch (e) { openModal("Users", [el("div", { class: "box badb" }, e.message)], [btn("Close", closeModal)]); return; }
+  const box = openModal("Users", [], [btn("Close", closeModal)]);
+  box.classList.add("wide");
+  const body = box.querySelector(".mb");
+  async function act(path, payload, keep) {
+    try { data = await api(path, { body: payload }); msg = ""; draw(); return true; }
+    catch (e) { msg = e.message; if (keep) { const x = body.querySelector(".merr"); if (x) { x.textContent = msg; x.hidden = false; } } else draw(); return false; }
+  }
+  function draw() {
+    const me = data.me.toLowerCase(), when = t => t ? new Date(t * 1000).toLocaleString() : "never";
+    const rows = data.users.map(u => {
+      const self = u.username.toLowerCase() === me;
+      const role = el("select", { disabled: self }, ["admin", "viewer"].map(r => el("option", { value: r }, r === "admin" ? "Administrator" : "Viewer")));
+      role.value = u.role; role.addEventListener("change", () => act("/api/users/update", { username: u.username, role: role.value }));
+      const on = el("input", { type: "checkbox", disabled: self, title: "An inactive account cannot sign in" }); on.checked = !u.disabled;
+      on.addEventListener("change", () => act("/api/users/update", { username: u.username, disabled: !on.checked }));
+      return el("tr", {},
+        el("td", { class: "nm" }, u.username, self ? el("span", { class: "tag" }, "you") : null, u.must_change ? el("small", {}, "must choose a new password") : null),
+        el("td", {}, role),
+        el("td", {}, idleSelect(u.idle_minutes, v => act("/api/users/update", { username: u.username, idle_minutes: v }))),
+        el("td", {}, on),
+        el("td", {}, u.sessions + (u.sessions === 1 ? " session" : " sessions"), el("small", {}, "last sign-in " + when(u.last_login))),
+        el("td", {}, el("div", { class: "acts" },
+          self ? null : btn("Set password", () => openSetPassword(u)),
+          btn("Sign out", () => act("/api/users/signout", { username: u.username }), ""),
+          self ? null : btn("Delete", () => { if (confirm("Delete the account " + u.username + "? Its sessions end at once.")) act("/api/users/delete", { username: u.username }); }, "dangerbtn"))));
+    });
+    const nm = el("input", { autocomplete: "off", maxlength: 64, spellcheck: "false", autocapitalize: "none", placeholder: "user name" });
+    const pw = el("input", { type: "text", autocomplete: "off", spellcheck: "false", maxlength: 200, value: genPassword() });
+    const rl = el("select", {}, el("option", { value: "viewer" }, "Viewer"), el("option", { value: "admin" }, "Administrator"));
+    const idl = idleSelect(480);
+    rl.addEventListener("change", () => { idl.value = rl.value === "admin" ? "60" : "480"; });
+    const mc = el("input", { type: "checkbox" }); mc.checked = true;
+    const add = btn("Add user", () => act("/api/users/add", { username: nm.value, password: pw.value, role: rl.value, idle_minutes: parseInt(idl.value, 10), must_change: mc.checked }, true), "primary");
+    const err = el("div", { class: "box badb merr" }, msg); err.hidden = !msg;
+    body.replaceChildren(
+      el("p", { class: "muted" }, "Administrators may edit. Viewers only look. Each account signs out by itself after the time set here without anybody using the page; choose “Never” for a wall display."),
+      el("table", { class: "utbl" }, el("thead", {}, el("tr", {}, ["User", "Role", "Automatic sign-out", "Active", "Signed in", ""].map(h => el("th", {}, h)))), el("tbody", {}, rows)),
+      el("h4", {}, "Add a user"),
+      el("div", { class: "uadd" }, fld("User name", nm), fld("Password (at least 10 characters)", pw), fld("Role", rl), fld("Automatic sign-out", idl)),
+      el("div", { class: "uaddf" }, el("label", { class: "chk" }, mc, el("span", {}, "Must choose a new password at the first sign-in")), add),
+      err);
+  }
+  draw();
+}
+$("#btn-user").addEventListener("click", () => { if (ME) openAccount(); });
 
 function askDeleteNode(m, n) {
   const links = m.links.filter(l => l.a.node === n.id || l.b.node === n.id), by = id => m.nodes.find(x => x.id === id);
@@ -2304,7 +2428,7 @@ async function openConnections(msg) {
   CONN.msg = msg || ""; CONN.result = null;
   const box = $("#conn"); box.hidden = false; renderCta();
   box.replaceChildren(dlgShell(el("div", { class: "empty" }, "Loading…")));
-  if (!canEdit) { box.replaceChildren(dlgShell(el("div", { class: "box warnb", style: "margin:16px" }, "Connections can only be changed from the machine running the dashboard, or by opening the page with ?token=… (see the start-up message)."))); return; }
+  if (!canEdit) { box.replaceChildren(dlgShell(el("div", { class: "box warnb", style: "margin:16px" }, ME ? "Connections can only be changed by an administrator." : "Connections can only be changed from the machine running the dashboard, or by opening the page with ?token=… (see the start-up message)."))); return; }
   try { CONN.data = await api("/api/connections"); }
   catch (e) { box.replaceChildren(dlgShell(el("div", { class: "box badb", style: "margin:16px" }, e.message))); return; }
   CONN.mode = CONN.data.mode;
@@ -2438,6 +2562,8 @@ async function boot() {
   let r;
   try {
     r = await api("/api/layout");
+    ME = r.user || null; renderUser();
+    if (ME && ME.must_change) { $("#main").replaceChildren(el("div", { class: "empty" }, "Choose a new password to continue.")); openPassword(true); return; }
     L = r.layout; canEdit = r.can_edit; DEMO = !!r.demo; CONN.mode = r.mode || "server";
     for (const m of Object.values(L.maps)) for (const l of m.links) fitVia(m, l);      // links bent by earlier versions with several bend points: keep the one that matters
   } catch (e) { $("#main").replaceChildren(el("div", { class: "empty err" }, "Cannot load the dashboard: " + e.message)); return; }
