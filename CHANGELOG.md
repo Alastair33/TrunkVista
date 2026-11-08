@@ -4,6 +4,15 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+**Server data from the Zabbix agent.** TrunkVista reads **CPU, memory, swap, load average, filesystems and uptime** of servers through the API, next to the interface data of the Cisco devices. Nothing to set up - the same API token is used and the items are found by the keys of Zabbix's stock templates (*Linux by Zabbix agent*, *Windows by Zabbix agent*, and the SNMP templates). [Details in the README](README.md#servers-zabbix-agent)
+
+- **Everywhere a device is shown:** cards get CPU / Memory / Swap / Disk bars (and the uptime), the list gets the columns *Type*, *CPU*, *Memory* and *Fullest disk* (only when the list has such data), the heatmap can be coloured by **CPU, Memory or Fullest disk**, **Group by › Type** separates servers from network devices, and the tooltips of a device and of a node on a weathermap show the numbers. The bars use the colour scale of the links.
+- **Cisco devices show their CPU and memory, too,** when their SNMP template has them (`system.cpu.util[...]`, `vm.memory.util[...]`, uptime).
+- **Servers on weathermaps:** the network cards of a Linux server are interfaces like those of a switch; their **state and speed** come from `/sys/class/net/<card>/operstate` and `.../speed` (items of *Linux by Zabbix agent*). The agent templates' error and drop counters, which share the `net.if.in[` prefix, are not taken for traffic.
+- **A server is a host that Zabbix reaches with its agent** (or that reports load, swap or disks); a server on active checks counts as *up* while its values are fresh. Values older than `stale_seconds` are left out, so a dead agent does not keep showing its last CPU.
+- **Light and safe:** one more `item.get` per batch of hosts (no names, no tags). If it fails, the network view keeps working and the header chip shows a ⚠ with the reason. The **Test** button and `trunkvista.py connection test` say how many server items were found.
+- **Demo:** `--demo` and `trunkvista_demo.html` have six servers (Linux and Windows), a *Datacenter* weathermap and a *Servers* tab; the standalone page reads Zabbix with the same rules as the server (tests compare the two).
+
 ## [1.3.0] - 2026-11-08
 
 **New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. It has a new logo, and everything that carried the name changed with it:

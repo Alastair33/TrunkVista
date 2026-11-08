@@ -1,7 +1,7 @@
 /* ===== Standalone backend ============================================================
    This replaces the Python server when the dashboard runs as a single HTML file.
    The page talks to /api/* with fetch(); here those calls are answered inside the browser:
-     - "Demo data": a simulated Cisco network (8 hosts, 2 proxies, 10 links)
+     - "Demo data": a simulated network - Cisco devices and servers (14 hosts, 2 proxies, 16 links)
      - saved connections: the browser calls the Zabbix API directly (JSON-RPC over fetch).
        This needs Zabbix's web server to allow it (CORS), or this file served from Zabbix itself.
    Connections and layouts are kept in this browser's localStorage.
@@ -108,6 +108,89 @@
   const natCmp = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" });
   const makeNameRx = src => new RegExp("^(?:" + String(src).replace(/\(\?P</g, "(?<") + ")");   // python-style (?P<x>) -> JS (?<x>), anchored like re.match
 
+  // ---------------------------------------------------------------- host metrics (servers: Zabbix agent; also what the SNMP templates report) - the same rules as the Python server
+  // Item keys read besides the interface items (prefixes for item.get): the keys of Zabbix's stock templates "Linux by Zabbix agent", "Windows by Zabbix agent" and the SNMP templates.
+  const METRIC_SEARCH = ["system.cpu.util", "system.cpu.load[", "system.cpu.num", "vm.memory.util", "vm.memory.size[", "system.swap.size[", "system.swap.pfree",
+    "system.uptime", "system.boottime", "system.net.uptime[", "system.hw.uptime[", "vfs.fs.size[", "vfs.fs.dependent.size["];
+  const METRIC_START = ["system.", "vm.memory.", "vfs.fs."];      // a cheap test before the patterns below are tried on a key
+  const SYSFS_SEARCH = 'vfs.file.contents["/sys/class/net/';      // a Linux server's NIC: its state and speed come from /sys (the agent templates have no net.if.status)
+  const SYSFS_RX = /^vfs\.file\.contents\["?\/sys\/class\/net\/([^/"\]]+)\/(operstate|speed)"?(?:,[^\]]*)?\]$/;
+  const COUNTER_MODE_RX = /^[^[]*\[(?:"(?:[^"]|"")*"|[^,\]]*),\s*"?([A-Za-z]+)"?\s*\]$/;      // net.if.in["eth0",errors]: the agent's second parameter says what is counted
+  const AGENT_NIC_RX = /^net\.if\.(?:in|out)\["?([^",\]]+)/;      // net.if.in["eth0"] / net.if.out[eth0,bytes]: the name is the first parameter
+  const OPERSTATE = new Map(Object.entries({ up: 1, down: 2, testing: 3, unknown: 4, dormant: 5, notpresent: 6, lowerlayerdown: 7 }));      // /sys/class/net/*/operstate -> ifOperStatus
+  // [metric, rank, key pattern, invert]. Several items can feed one metric: the lowest rank wins, and the worst value of that rank. invert: the item holds the FREE share.
+  const METRIC_RULES = [
+    ["cpu", 0, /^system\.cpu\.util$/, false], ["cpu", 1, /^system\.cpu\.util\[[^,\]]+\]$/, false], ["cpu", 2, /^system\.cpu\.util\[(?:all)?,idle(?:,[a-z0-9]+)*\]$/, true],
+    ["mem", 0, /^vm\.memory\.utili[sz]ation$/, false], ["mem", 1, /^vm\.memory\.util(?:\[[^\]]*\])?$/, false],
+    ["mem", 2, /^vm\.memory\.size\[pused\]$/, false], ["mem", 3, /^vm\.memory\.size\[pavailable\]$/, true],
+    ["swap", 0, /^system\.swap\.size\[[^,\]]*,pused\]$/, false], ["swap", 1, /^system\.swap\.size\[[^,\]]*,pfree\]$/, true], ["swap", 2, /^system\.swap\.pfree$/, true],
+    ["load", 0, /^system\.cpu\.load\[all,avg1\]$/, false], ["load", 1, /^system\.cpu\.load\[all,avg5\]$/, false], ["load_pc", 0, /^system\.cpu\.load\[percpu,avg1\]$/, false],
+    ["cores", 0, /^system\.cpu\.num$/, false],
+    ["uptime", 0, /^system\.uptime$/, false], ["uptime", 1, /^system\.(?:net|hw)\.uptime\[[^\]]*\]$/, false], ["boottime", 0, /^system\.boottime$/, false],
+    ["mem_avail", 0, /^vm\.memory\.size\[available\]$/, false], ["mem_total", 0, /^vm\.memory\.size\[total\]$/, false],
+  ];
+  const FS_RX = /^vfs\.fs\.(?:dependent\.)?size\["?([^",\]]+)"?,pused\]$/;      // one per filesystem: the share of its space that is used
+  const STATIC_METRICS = new Set(["cores", "boottime", "mem_total"]);      // these do not change: no freshness test
+  const MAX_DISKS = 6, MAX_FS_NAME = 64;      // filesystems kept per host (the fullest ones), characters of a filesystem's name that are kept
+  const roundHalf = (x, nd = 1) => { const f = 10 ** nd; return Math.floor(x * f + 0.5) / f; };      // halves up, like the Python server
+  const pctClamp = v => roundHalf(Math.min(100, Math.max(0, v)));
+  function metricsOf(items, now, stale) {      // -> { hostid: { cpu, mem, swap, load, cores, load_pct, disk, disk_name, disks, uptime, clock } }; only what was found, and nothing older than `stale` seconds (filesystems: at least an hour)
+    const best = {}, disks = {}, diskClock = {};
+    for (const it of items) {
+      const key = it.key_ || "";
+      if (!METRIC_START.some(pre => key.startsWith(pre))) continue;
+      if (it.lastvalue == null || String(it.lastvalue).trim() === "") continue;
+      const v = Number(it.lastvalue);
+      if (!Number.isFinite(v)) continue;
+      const clock = parseInt(it.lastclock || 0, 10) || 0, hid = it.hostid, fs = FS_RX.exec(key);
+      if (fs) {
+        if (!clock || now - clock <= Math.max(stale, 3600)) {
+          const d = disks[hid] || (disks[hid] = new Map()), name = fs[1].slice(0, MAX_FS_NAME);
+          d.set(name, Math.max(d.get(name) || 0, pctClamp(v)));
+          diskClock[hid] = Math.max(diskClock[hid] || 0, clock);
+        }
+        continue;
+      }
+      for (const [metric, rank, rx, inv] of METRIC_RULES) {
+        if (!rx.test(key)) continue;
+        if (!STATIC_METRICS.has(metric) && clock && now - clock > stale) break;
+        const v2 = inv ? 100 - v : v, b = best[hid] || (best[hid] = {}), slot = b[metric];
+        if (!slot || rank < slot[0]) b[metric] = [rank, v2, clock];
+        else if (rank === slot[0]) b[metric] = [rank, Math.max(slot[1], v2), Math.max(slot[2], clock)];
+        break;
+      }
+    }
+    const out = {};
+    for (const hid of new Set([...Object.keys(best), ...Object.keys(disks)])) {
+      const m = hostMetrics(best[hid] || {}, disks[hid] || new Map(), diskClock[hid] || 0, now);
+      if (Object.keys(m).length) out[hid] = m;
+    }
+    return out;
+  }
+  function hostMetrics(b, fs, fsClock, now) {      // one host: b = metric -> [rank, value, clock] of the best items, fs = filesystem -> percent used
+    const val = n => (n in b ? b[n][1] : null), m = {};
+    for (const n of ["cpu", "mem", "swap"]) if (val(n) != null) m[n] = pctClamp(val(n));
+    if (m.mem == null && val("mem_total") && val("mem_avail") != null) m.mem = pctClamp(100 * (1 - val("mem_avail") / val("mem_total")));      // no percentage item: from the bytes available and in total
+    const cores = val("cores") && val("cores") >= 1 ? Math.trunc(val("cores")) : null;
+    if (cores) m.cores = cores;
+    const load = val("load");
+    if (load != null && load >= 0) { m.load = roundHalf(load, 2); if (cores) m.load_pct = roundHalf(100 * load / cores); }
+    else if (val("load_pc") != null && val("load_pc") >= 0) m.load_pct = roundHalf(100 * val("load_pc"));      // already per CPU
+    let up = val("uptime");
+    if (up == null && val("boottime")) up = now - val("boottime");
+    if (up != null && up >= 0) m.uptime = Math.trunc(up);
+    const ds = [...fs.entries()].sort((x, y) => (y[1] - x[1]) || natCmp(x[0], y[0])).slice(0, MAX_DISKS);
+    if (ds.length) { m.disk = ds[0][1]; m.disk_name = ds[0][0]; m.disks = ds.map(([name, pct]) => ({ name, pct })); }
+    const clocks = Object.entries(b).filter(([n, e]) => !STATIC_METRICS.has(n) && e[2]).map(([, e]) => e[2]).concat(fsClock ? [fsClock] : []);
+    if (Object.keys(m).length && clocks.length) m.clock = Math.max(...clocks);      // when the freshest of these was measured (the page does not get it; the program tests with it whether the agent is alive)
+    return m;
+  }
+  function publicMetrics(m, short) {      // the metrics of one host as the page gets them (short: the headline numbers only, for the tooltip of a map node)
+    if (!m) return null;
+    const out = {}; for (const k of short ? ["cpu", "mem", "disk", "disk_name"] : ["cpu", "mem", "swap", "load", "cores", "load_pct", "disk", "disk_name", "disks", "uptime"]) if (k in m) out[k] = m[k];
+    return Object.keys(out).length ? out : null;
+  }
+
   class LiveSource {
     constructor(profile, secret, timeoutMs) {
       this.m = Object.assign({}, MATCH_DEFAULTS);
@@ -151,11 +234,22 @@
     _items(hostids) {
       const m = this.m;
       return this._batched("item.get", hostids, ITEM_BATCH, ids => ({ output: ["itemid", "hostid", "name", "key_", "lastvalue", "lastclock", "units", "value_type"], hostids: ids, monitored: true,
-        search: { key_: [m.in_key, m.out_key, m.status_key, m.speed_key] }, searchByAny: true, startSearch: true, selectTags: ["tag", "value"], limit: ITEM_LIMIT }), ITEM_LIMIT);
+        search: { key_: [m.in_key, m.out_key, m.status_key, m.speed_key, SYSFS_SEARCH] }, searchByAny: true, startSearch: true, selectTags: ["tag", "value"], limit: ITEM_LIMIT }), ITEM_LIMIT);
+    }
+    async _metrics(ids, now) {      // [metrics per host, warning]: a failed request for the metrics must not take the network view down with it - the warning goes to the page's status
+      try {
+        const items = await this._batched("item.get", ids, ITEM_BATCH, c => ({ output: ["hostid", "key_", "lastvalue", "lastclock"], hostids: c, monitored: true, search: { key_: METRIC_SEARCH }, searchByAny: true, startSearch: true, limit: ITEM_LIMIT }), ITEM_LIMIT);
+        return [metricsOf(items, now, STALE_SECONDS), ""];
+      } catch (e) { if (!(e instanceof ZbxError) || e.auth) throw e; return [{}, ("server metrics: " + e.message).slice(0, 300)]; }
     }
     _kind(key) {
       const m = this.m;
-      for (const [kind, pref] of [["in", m.in_key], ["out", m.out_key], ["status", m.status_key], ["speed", m.speed_key]]) if (key.startsWith(pref)) return kind;
+      for (const [kind, pref] of [["in", m.in_key], ["out", m.out_key], ["status", m.status_key], ["speed", m.speed_key]]) if (key.startsWith(pref)) {
+        if (kind === "in" || kind === "out") { const mode = COUNTER_MODE_RX.exec(key); if (mode && mode[1].toLowerCase() !== "bytes") return null; }      // the agent's templates also have net.if.in["eth0",errors] and the like: not traffic
+        return kind;
+      }
+      const sysfs = SYSFS_RX.exec(key);
+      if (sysfs) return sysfs[2] === "operstate" ? "status" : "speed";      // a Linux server's NIC: operstate = "up" / "down", speed = Mbit/s
       return null;
     }
     _ifname(it) {
@@ -164,12 +258,17 @@
       const mm = this.nameRx.exec(it.name || "");
       if (mm && mm.groups && mm.groups.ifname) return [mm.groups.ifname.trim(), mm.groups.alias || ""];
       const mi = /\.(\d+)\]$/.exec(it.key_);
-      return [mi ? "idx:" + mi[1] : it.key_, ""];
+      if (mi) return ["idx:" + mi[1], ""];
+      const mk = SYSFS_RX.exec(it.key_) || AGENT_NIC_RX.exec(it.key_);      // a server's NIC: net.if.in["eth0"], .../sys/class/net/eth0/operstate
+      return [mk ? mk[1] : it.key_, ""];
     }
     static _value(it, kind) {
       if (it.lastvalue == null || String(it.lastvalue).trim() === "") return null;
+      const sysfs = SYSFS_RX.test(it.key_ || "");
+      if (kind === "status" && sysfs) { const w = String(it.lastvalue).trim().toLowerCase(); if (OPERSTATE.has(w)) return OPERSTATE.get(w); }      // the kernel's word -> the number SNMP would have said
       let v = Number(it.lastvalue);
       if (!Number.isFinite(v)) return null;
+      if (kind === "speed" && sysfs) return v <= 0 ? null : (v < 1e6 ? v * 1e6 : v);      // the kernel says Mbit/s (-1: it does not know); a template may have multiplied it to bit/s already
       const units = String(it.units || "").trim();
       if ((kind === "in" || kind === "out") && (units === "Bps" || units === "B/s")) v *= 8;          // bytes/s -> bits/s (case matters: "bps" is already bits)
       if (kind === "speed") v *= { kbps: 1e3, mbps: 1e6, gbps: 1e9 }[units.toLowerCase()] || 1;
@@ -225,6 +324,11 @@
       const av = use.map(i => String(i.available));
       return av.includes("2") ? "down" : av.includes("1") ? "up" : "unknown";
     }
+    static _hostKind(h, met) {      // "server" for a host that Zabbix reaches with its agent (and not with SNMP), or that reports load / disks / swap; else "network"
+      const types = new Set((h.interfaces || []).map(i => String(i.type)));
+      if (types.has("1") && !types.has("2")) return "server";
+      return met && ["load", "disk", "swap", "cores"].some(k => k in met) ? "server" : "network";
+    }
     static _hostIp(h) {     // address Zabbix polls the host on: main SNMP interface, else main / first
       const ifs = h.interfaces || [], s = String;
       const pick = [ifs.filter(i => s(i.type) === "2" && s(i.main) === "1"), ifs.filter(i => s(i.type) === "2"), ifs.filter(i => s(i.main) === "1"), ifs].find(a => a.length);
@@ -238,18 +342,20 @@
       return [pick("os_short", "os", "os_full"), pick("model", "hardware")];
     }
     async snapshot(hostids, minSev) {
-      const snap = { ts: Date.now() / 1000, hosts: {}, interfaces: {} };
+      const now = Date.now() / 1000, snap = { ts: now, hosts: {}, interfaces: {}, metrics: {}, warn: "" };
       const ids = [...new Set(hostids)].sort();
       if (!ids.length) return snap;
       const z = this.zbx;
       await z.ready();     // log in once up front so the parallel calls below do not race each other
-      const [hosts, proxyRows, trig, items] = await Promise.all([
+      const [hosts, proxyRows, trig, items, [metrics, warn]] = await Promise.all([
         this._batched("host.get", ids, HOST_BATCH, c => ({ output: ["hostid", "name", "status", "proxyid"], hostids: c, selectInterfaces: ["type", "available", "main", "ip", "dns", "useip"], selectInventory: ["os", "os_short", "os_full", "model", "hardware"] })),
         z.call("proxy.get", { output: ["proxyid", "name"] }).catch(e => { if (e instanceof ZbxError) return []; throw e; }),
         this._batched("trigger.get", ids, HOST_BATCH, c => ({ output: ["triggerid", "description", "priority"], hostids: c, monitored: true, only_true: true, skipDependent: true, min_severity: Math.trunc(minSev),
           selectHosts: ["hostid"], expandDescription: true, sortfield: "priority", sortorder: "DESC", limit: TRIG_LIMIT }), TRIG_LIMIT),
         this._items(ids),
+        this._metrics(ids, now),
       ]);
+      snap.metrics = metrics; snap.warn = warn;
       const proxies = {}; for (const p of proxyRows) proxies[p.proxyid] = p.name;
       const per = {}, seenT = new Set();
       for (const t of trig) {
@@ -259,7 +365,10 @@
       }
       for (const h of hosts) {
         const probs = (per[h.hostid] || []).slice().sort((a, b) => b.severity - a.severity);
-        snap.hosts[h.hostid] = { id: h.hostid, name: h.name, status: LiveSource._hostState(h), ip: LiveSource._hostIp(h), os: LiveSource._inventory(h)[0], model: LiveSource._inventory(h)[1], proxy: (h.proxyid != null && h.proxyid !== "0") ? (proxies[h.proxyid] || "") : "",
+        const met = metrics[h.hostid], kind = LiveSource._hostKind(h, met);
+        let state = LiveSource._hostState(h);
+        if (state === "unknown" && kind === "server" && met && now - (met.clock || 0) <= STALE_SECONDS) state = "up";      // a server on active checks has no agent availability to show; fresh values prove it is alive
+        snap.hosts[h.hostid] = { id: h.hostid, name: h.name, kind, status: state, ip: LiveSource._hostIp(h), os: LiveSource._inventory(h)[0], model: LiveSource._inventory(h)[1], proxy: (h.proxyid != null && h.proxyid !== "0") ? (proxies[h.proxyid] || "") : "",
           severity: probs.length ? probs[0].severity : 0, problems: probs.length, top: probs.slice(0, 5) };
       }
       snap.interfaces = this._interfaces(items);
@@ -272,8 +381,10 @@
       let proxies = null;
       try { proxies = parseInt(await z.call("proxy.get", { countOutput: true }), 10); } catch (e) { if (!(e instanceof ZbxError)) throw e; }
       const items = parseInt(await z.call("item.get", { countOutput: true, monitored: true, search: { key_: [m.in_key, m.out_key] }, searchByAny: true, startSearch: true }), 10);
+      let serverItems = null;
+      try { serverItems = parseInt(await z.call("item.get", { countOutput: true, monitored: true, search: { key_: ["system.cpu.util", "vm.memory.util", "vfs.fs.dependent.size[", "vfs.fs.size["] }, searchByAny: true, startSearch: true }), 10); } catch (e) { if (!(e instanceof ZbxError)) throw e; }
       const rows = await z.call("host.get", { output: ["hostid", "name", "status", "proxyid"], monitored_hosts: true, sortfield: "name", limit: 8, selectInterfaces: ["type", "available", "main"] });
-      return { version, hosts, proxies, interface_items: items, sample: rows.map(r => ({ id: r.hostid, name: r.name, status: LiveSource._hostState(r) })) };
+      return { version, hosts, proxies, interface_items: items, server_items: serverItems, sample: rows.map(r => ({ id: r.hostid, name: r.name, status: LiveSource._hostState(r) })) };
     }
   }
 
@@ -283,15 +394,22 @@
     ["10003", "pe-c8300-1", "Proxy-A", "Cisco WAN routers", "router"], ["10004", "pe-c8300-2", "Proxy-B", "Cisco WAN routers", "router"],
     ["10005", "ce-c8200l-1", "Proxy-B", "Cisco edge", "edge"], ["10006", "ce-c8200l-2", "Proxy-B", "Cisco edge", "edge"],
     ["10007", "ce-c8200l-3", "Proxy-B", "Cisco edge", "edge"], ["10008", "dist-c9300-stack", "Proxy-A", "Cisco core", "core"],
+    ["10011", "srv-web-01", "Proxy-A", "Linux servers", "server"], ["10012", "srv-web-02", "Proxy-B", "Linux servers", "server"],
+    ["10013", "srv-db-01", "Proxy-A", "Linux servers", "server"], ["10014", "srv-db-02", "Proxy-B", "Linux servers", "server"],
+    ["10015", "srv-app-01", "Proxy-A", "Windows servers", "winserver"], ["10016", "srv-backup-01", "Proxy-B", "Linux servers", "server"],
   ];
   const DEMO_INFO = {   // host inventory the demo "reports": id -> [operating system, device model]; ce-c8200l-2 has none, to show the "unknown" group
     10001: ["Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"], 10002: ["Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"], 10003: ["Cisco IOS XE 17.9.4", "C8300-2N2S-4T2X"], 10004: ["Cisco IOS XE 17.6.5", "C8300-2N2S-4T2X"],
     10005: ["Cisco IOS XE 17.9.4", "C8200L-1N-4T"], 10006: ["", ""], 10007: ["Cisco IOS XE 17.6.5", "C8200L-1N-4T"], 10008: ["Cisco IOS XE 17.6.5", "Catalyst C9300-48P"],
+    10011: ["Ubuntu 22.04.4 LTS", "Dell PowerEdge R650"], 10012: ["Ubuntu 22.04.4 LTS", "Dell PowerEdge R650"], 10013: ["Rocky Linux 9.3", "HPE ProLiant DL380 Gen10"],
+    10014: ["Rocky Linux 9.3", "HPE ProLiant DL380 Gen10"], 10015: ["Windows Server 2022", "Dell PowerEdge R750"], 10016: ["Debian 12", "Supermicro SYS-6029P"],
   };
   const DEMO_IFACES = {
     core: [1, 2, 3, 4, 5, 6].map(i => ["Te1/0/" + i, 10e9]),
     router: [["Gi0/0/0", 1e9], ["Gi0/0/1", 1e9], ["Te0/0/2", 10e9], ["Te0/0/3", 10e9]],
     edge: [["Gi0/0/0", 1e9], ["Gi0/0/1", 1e9], ["Gi0/1/0", 1e9]],
+    server: [["ens192", 10e9], ["ens224", 1e9]],      // a Linux server: the data NIC (linked to a core switch) and a management NIC
+    winserver: [["Ethernet0", 10e9], ["Ethernet1", 1e9]],
   };
   const DEMO_LINKS = [   // id, hostA, ifA, hostB, ifB, name
     ["L1", "10001", "Te1/0/1", "10002", "Te1/0/1", "Core interconnect"], ["L2", "10001", "Te1/0/2", "10003", "Te0/0/2", "Core1 - PE1"],
@@ -299,7 +417,15 @@
     ["L5", "10003", "Gi0/0/0", "10005", "Gi0/0/0", "Branch 1"], ["L6", "10003", "Gi0/0/1", "10006", "Gi0/0/0", "Branch 2 (primary)"],
     ["L7", "10004", "Gi0/0/0", "10007", "Gi0/0/0", "Branch 3"], ["L8", "10004", "Gi0/0/1", "10006", "Gi0/0/1", "Branch 2 (backup)"],
     ["L9", "10001", "Te1/0/3", "10008", "Te1/0/1", "Core1 - Dist"], ["L10", "10002", "Te1/0/3", "10008", "Te1/0/2", "Core2 - Dist"],
+    ["L11", "10001", "Te1/0/4", "10011", "ens192", "Core1 - web-01"], ["L12", "10002", "Te1/0/4", "10012", "ens192", "Core2 - web-02"],
+    ["L13", "10001", "Te1/0/5", "10013", "ens192", "Core1 - db-01"], ["L14", "10002", "Te1/0/5", "10014", "ens192", "Core2 - db-02"],
+    ["L15", "10001", "Te1/0/6", "10015", "Ethernet0", "Core1 - app-01"], ["L16", "10002", "Te1/0/6", "10016", "ens192", "Core2 - backup-01"],
   ];
+  const DEMO_SERVERS = {      // the demo's agent hosts: id -> [CPU cores, always busy, [filesystem, percent used]]
+    10011: [8, false, [["/", 41], ["/var", 58]]], 10012: [8, false, [["/", 38], ["/var", 52]]], 10013: [32, true, [["/", 47], ["/var/lib/pgsql", 86]]],
+    10014: [32, false, [["/", 44], ["/var/lib/pgsql", 71]]], 10015: [16, false, [["C:", 63], ["D:", 77]]], 10016: [4, false, [["/", 29], ["/backup", 93]]],
+  };
+  const DEMO_STARTED = Date.now() / 1000;      // the demo hosts "booted" some days before the page was opened
   const DEMO_ACCESS = 120;     // extra access switches (acc-sw-001 ..) that only the "All devices" tab lists - so there is something to page through
   const accessInfo = i => i % 11 === 0 ? ["", ""] : [i % 3 ? "Cisco IOS XE 17.6.5" : "Cisco IOS 15.2(7)E4", i % 2 ? "C9200-48P" : "C2960X-48FPD-L"];     // [os, model]; every 11th has none
   const HOT = new Set(["L6"]);    // always busy: shows the red end of the colour scale
@@ -339,8 +465,24 @@
     }
     return [util(hid + "/" + name, "ba", t) * speed * 0.06, util(hid + "/" + name, "ab", t) * speed * 0.06, 1];
   }
+  function demoMetrics(hid, t, cpuHi, memHi) {      // what a host "reports" at time t, shaped like metricsOf() makes it from real items: a server - CPU, memory, swap, load, disks, uptime (a Windows server has no load average); a Cisco device - CPU, memory and uptime
+    const h = crc32("m" + hid), wave = 0.5 + 0.5 * Math.sin(t / 95 + (h % 628) / 100);
+    const noise = ((crc32("m" + hid + ":" + Math.floor(t / 6)) % 1000) / 1000 - 0.5) * 4;
+    const up = (2 + h % 120) * 86400 + (t - DEMO_STARTED), srv = DEMO_SERVERS[hid];
+    if (!srv) {
+      const cpu = cpuHi ? 93 + 4 * wave : (5 + h % 28) * (0.55 + 0.9 * wave) + noise, mem = memHi ? 91 + 4 * wave : 28 + (h >>> 5) % 40 + 5 * wave;
+      return { cpu: pctClamp(cpu), mem: pctClamp(mem), uptime: Math.trunc(up) };
+    }
+    const [cores, busy, disks] = srv, cpu = pctClamp(busy ? 80 + 17 * wave : (8 + h % 32) * (0.5 + wave) + noise);
+    const m = { cpu, mem: pctClamp(38 + (h >>> 5) % 40 + 7 * wave), swap: pctClamp(2 + (h >>> 9) % 9 + (busy ? 30 * wave : 2 * wave)), cores };
+    if (hid !== "10015") { const load = roundHalf(cores * cpu / 100 * 1.1, 2); m.load = load; m.load_pct = pctClamp(100 * load / cores); }
+    const ds = disks.map(([n, pc]) => [n, pctClamp(pc + 1.2 * Math.sin(t / 3600 + (h % 100)))]).sort((x, y) => (y[1] - x[1]) || natCmp(x[0], y[0]));
+    m.disk = ds[0][1]; m.disk_name = ds[0][0]; m.disks = ds.map(([name, pct]) => ({ name, pct }));
+    m.uptime = Math.trunc(up);
+    return m;
+  }
   function demoSnapshot(hostids, minSev) {
-    const t = Date.now() / 1000, snap = { ts: t, hosts: {}, interfaces: {} };
+    const t = Date.now() / 1000, snap = { ts: t, hosts: {}, interfaces: {}, metrics: {}, warn: "" };
     for (const hid of [...new Set(hostids)].sort()) {
       const h = HOSTS[hid];
       if (!h) continue;
@@ -356,8 +498,19 @@
         if (status === "up" && acc % 9 === 0) probs.push({ name: "High memory utilization (>90% for 5m)", severity: 2 });
         if (status === "up" && acc % 23 === 0) probs.push({ name: "High CPU utilization (over 90% for 5m)", severity: 3 });
       }
+      if (DEMO_SERVERS[hid]) ip = "10.20.0." + (parseInt(hid, 10) - 10000);
+      const cpuHi = probs.some(p => p.name.startsWith("High CPU")), memHi = probs.some(p => p.name.startsWith("High memory"));
+      if (status === "up") {      // a switch that is down reports nothing
+        const met = demoMetrics(hid, t, cpuHi, memHi);
+        snap.metrics[hid] = met;
+        if (DEMO_SERVERS[hid]) {      // what Zabbix's stock triggers would say about these numbers
+          if (met.cpu > 90) probs.push({ name: "High CPU utilization (over 90% for 5m)", severity: 3 });
+          if (met.mem > 90) probs.push({ name: "High memory utilization (>90% for 5m)", severity: 2 });
+          for (const d of met.disks) if (d.pct > 90) probs.push({ name: d.name + ": Free disk space is less than 10%", severity: 3 });
+        }
+      }
       probs = probs.filter(p => p.severity >= minSev);
-      snap.hosts[hid] = { id: hid, name: h.name, status, ip, os: os_, model, proxy: h.proxy, severity: Math.max(0, ...probs.map(p => p.severity)), problems: probs.length, top: probs };
+      snap.hosts[hid] = { id: hid, name: h.name, kind: DEMO_SERVERS[hid] ? "server" : "network", status, ip, os: os_, model, proxy: h.proxy, severity: Math.max(0, ...probs.map(p => p.severity)), problems: probs.length, top: probs };
       const ifs = {};
       for (const [name, meta] of Object.entries(h.ifs)) {
         const [inn, out, oper] = ifAt(hid, name, t);
@@ -399,15 +552,20 @@
     const br = { name: "Branches", width: 1200, height: 600,
       nodes: [node("n-p1", "10003", 260, 130), node("n-p2", "10004", 940, 130), node("n-e1", "10005", 150, 440), node("n-e2", "10006", 600, 440), node("n-e3", "10007", 1050, 440)],
       links: [link("L5", "n-p1", "n-e1"), link("L6", "n-p1", "n-e2"), link("L7", "n-p2", "n-e3"), link("L8", "n-p2", "n-e2")] };
+    const dc = { name: "Datacenter", width: 1200, height: 600,
+      nodes: [node("n-c1", "10001", 330, 130), node("n-c2", "10002", 870, 130), node("n-s1", "10011", 100, 440), node("n-s3", "10013", 330, 440), node("n-s5", "10015", 560, 440),
+        node("n-s2", "10012", 640, 440), node("n-s4", "10014", 870, 440), node("n-s6", "10016", 1100, 440)],
+      links: [link("L1", "n-c1", "n-c2"), link("L11", "n-c1", "n-s1"), link("L13", "n-c1", "n-s3"), link("L15", "n-c1", "n-s5"), link("L12", "n-c2", "n-s2"), link("L14", "n-c2", "n-s4"), link("L16", "n-c2", "n-s6")] };
     return {
-      version: 1, maps: { "m-wan": wan, "m-br": br },
+      version: 1, maps: { "m-wan": wan, "m-br": br, "m-dc": dc },
       tabs: [
-        { id: "t-wan", name: "Core & WAN", type: "map", map: "m-wan" }, { id: "t-br", name: "Branches", type: "map", map: "m-br" },
+        { id: "t-wan", name: "Core & WAN", type: "map", map: "m-wan" }, { id: "t-br", name: "Branches", type: "map", map: "m-br" }, { id: "t-dc", name: "Datacenter", type: "map", map: "m-dc" },
+        { id: "t-srv", name: "Servers", type: "devices", hosts: [], hostnames: {}, groups: ["Linux servers", "Windows servers"], ifaces: 2 },
         { id: "t-rt", name: "Routers", type: "devices", hosts: [], hostnames: {}, groups: ["Cisco WAN routers", "Cisco edge"], ifaces: 4 },
         { id: "t-core", name: "Core switches", type: "devices", hosts: ["10001", "10002", "10008"], hostnames: { "10001": "core-c9500-1", "10002": "core-c9500-2", "10008": "dist-c9300-stack" }, groups: [], ifaces: 4 },
         { id: "t-all", name: "All devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, all: true, style: "list" },
       ],
-      playlists: [{ id: "p-noc", name: "NOC wall", loop: true, items: [{ tab: "t-wan", seconds: 20 }, { tab: "t-br", seconds: 20 }, { tab: "t-rt", seconds: 15 }, { tab: "t-core", seconds: 15 }] }],
+      playlists: [{ id: "p-noc", name: "NOC wall", loop: true, items: [{ tab: "t-wan", seconds: 20 }, { tab: "t-br", seconds: 20 }, { tab: "t-dc", seconds: 20 }, { tab: "t-srv", seconds: 15 }, { tab: "t-rt", seconds: 15 }, { tab: "t-core", seconds: 15 }] }],
       settings: {},
     };
   }
@@ -570,7 +728,7 @@
   }
 
   // ---------------------------------------------------------------- views (same logic as the Python server)
-  const emptySnap = () => ({ ts: 0, hosts: {}, interfaces: {} });
+  const emptySnap = () => ({ ts: 0, hosts: {}, interfaces: {}, metrics: {}, warn: "" });
   function needed() {
     const ids = new Set(), groups = new Set(); let wantAll = false;
     for (const m of Object.values(layout.maps)) for (const n of m.nodes) ids.add(n.host);
@@ -687,11 +845,11 @@
   }
   async function view(tab) {
     const now = Date.now() / 1000, d = await currentData(), snap = d.snap, demo = conns.active === "demo";
-    const status = { ok: !d.error, error: d.error, last_ok: demo ? now : d.lastOk, last_try: now, seconds: 0, version: cache.version, hosts: Object.keys(snap.hosts).length, demo, conn: connName() };
+    const status = { ok: !d.error, error: d.error, warn: snap.warn || "", last_ok: demo ? now : d.lastOk, last_try: now, seconds: 0, version: cache.version, hosts: Object.keys(snap.hosts).length, demo, conn: connName() };
     const out = { ts: now, status, kind: tab.type };
     if (tab.type === "map") {
       const m = layout.maps[tab.map], nodes = Object.fromEntries(m.nodes.map(n => [n.id, n]));
-      out.nodes = m.nodes.map(n => { const h = snap.hosts[n.host] || {}; return { id: n.id, name: h.name || "", status: h.status || "unknown", severity: h.severity || 0, problems: h.problems || 0, proxy: h.proxy || "", top: h.top || [] }; });
+      out.nodes = m.nodes.map(n => { const h = snap.hosts[n.host] || {}; return { id: n.id, name: h.name || "", status: h.status || "unknown", severity: h.severity || 0, problems: h.problems || 0, proxy: h.proxy || "", top: h.top || [], kind: h.kind || "network", metrics: publicMetrics((snap.metrics || {})[n.host], true) }; });
       out.links = m.links.map(l => resolveLink(l, nodes, snap, now));
     } else {
       let list = [...tab.hosts]; for (const g of tab.groups) list = list.concat(d.groupIds[g] || []);
@@ -700,14 +858,14 @@
       for (const hid of list) {
         if (seen.has(hid)) continue; seen.add(hid);
         const h = snap.hosts[hid];
-        if (!h) { cards.push({ id: hid, name: tab.hostnames[hid] || hid, status: "unknown", ip: "", os: "", model: "", severity: 0, problems: 0, proxy: "", top: [], ifaces: [], if_total: 0, if_down: 0 }); continue; }
+        if (!h) { cards.push({ id: hid, name: tab.hostnames[hid] || hid, status: "unknown", ip: "", os: "", model: "", severity: 0, problems: 0, proxy: "", top: [], ifaces: [], if_total: 0, if_down: 0, kind: "network", metrics: null }); continue; }
         const ifs = Object.entries(snap.interfaces[hid] || {}).map(([name, r]) => {
           const vals = [r.in_bps, r.out_bps].filter(v => v != null), peak = vals.length ? Math.max(...vals) : null;
           return { name, alias: r.alias, oper: r.oper, in_bps: r.in_bps, out_bps: r.out_bps, speed: r.speed_bps, pct: (peak != null && r.speed_bps) ? peak / r.speed_bps * 100 : null };
         });
         const up = ifs.filter(i => i.oper === 1 || i.oper == null).sort((a, b) => ((a.pct == null) - (b.pct == null)) || ((b.pct || 0) - (a.pct || 0)));
         cards.push({ id: hid, name: h.name, status: h.status, ip: h.ip || "", os: h.os || "", model: h.model || "", severity: h.severity, problems: h.problems, proxy: h.proxy, top: h.top.slice(0, 3),
-          ifaces: up.slice(0, tab.ifaces), if_total: ifs.length, if_down: ifs.filter(i => DOWN_STATES.has(i.oper)).length });
+          ifaces: up.slice(0, tab.ifaces), if_total: ifs.length, if_down: ifs.filter(i => DOWN_STATES.has(i.oper)).length, kind: h.kind || "network", metrics: publicMetrics((snap.metrics || {})[hid]) });
       }
       cards.sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
       out.cards = cards;
@@ -794,5 +952,5 @@
   loadConns();
   activate(conns.active);
   const badge = document.getElementById("demo");
-  if (badge) badge.title = "Simulated Cisco network that runs entirely in this browser. Click the status chip at the top (or press C) to connect to your Zabbix.";
+  if (badge) badge.title = "Simulated Cisco network and servers that run entirely in this browser. Click the status chip at the top (or press C) to connect to your Zabbix.";
 })();

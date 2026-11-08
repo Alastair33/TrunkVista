@@ -7,17 +7,18 @@
 
 > **Download TrunkVista from the [latest release](https://github.com/Alastair33/TrunkVista/releases/latest)** - not with *Code → Download ZIP* and not by cloning: the branch can hold changes that are not released yet. [Details](#download)
 
-TrunkVista is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies):
+TrunkVista is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies, and for the servers next to it):
 
 - **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
-- **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, proxy, OS, model, …
+- **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, type, proxy, OS, model, …
+- **Server data** – CPU, memory, swap, load, disks and uptime of hosts monitored with the **Zabbix agent**, read through the API next to the Cisco interface data. [Details](#servers-zabbix-agent)
 - **Playlists** and a kiosk mode for NOC wall displays, a built-in editor, a connection menu for your Zabbix API.
 - **Sign-in** with **administrator** and **viewer** accounts (set up while you install), an automatic sign-out you choose per account (or *never*, for a wall display), and a login-throttle. [Details](#accounts-and-sign-in)
 - **Dark and light** colour themes (dark is the default), switched with a button in the header or the **T** key; *Auto* follows the system.
 - One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
 
 ```
-python3 trunkvista.py --demo      # try it with simulated Cisco devices, no Zabbix needed -> http://127.0.0.1:8088
+python3 trunkvista.py --demo      # try it with simulated Cisco devices and servers, no Zabbix needed -> http://127.0.0.1:8088
 trunkvista_demo.html              # or just open this file in a browser: a standalone demo
 ```
 
@@ -84,7 +85,7 @@ Once it is installed, `sudo trunkvista-update` keeps it on the newest release - 
 
 ## Screenshots
 
-All of these show the built-in demo data (simulated Cisco devices), so no real network is on display.
+All of these show the built-in demo data (simulated Cisco devices and servers), so no real network is on display.
 
 **Weathermap.** Each link is coloured by its utilisation and labelled with % and bit/s for each direction; the legend shows the scale.
 
@@ -232,6 +233,28 @@ A **light mode** and a **heatmap view** for the device tabs, easier-to-read labe
 - CI also runs ruff (pyflakes rules), a JavaScript syntax check of both page scripts, and a test that keeps the dark and light palettes
   defining the same variables.
 <!-- whats-new:end -->
+
+## Servers (Zabbix agent)
+
+Besides the interfaces of your Cisco devices, TrunkVista reads **server data** from Zabbix: a host that Zabbix monitors with its **agent** (passive or active) shows its **CPU, memory, swap, load average, filesystems and uptime** on its card, in the list, in the heatmap and in the tooltip of its node on a weathermap. Nothing has to be set up: the same API token is used, and the data is found by the item keys of Zabbix's own templates. Servers also take part in weathermaps - their network cards are interfaces like those of a switch, so a link between a core switch port and `ens192` of a server is drawn like any other.
+
+| Shown | Where it comes from (item key) |
+|---|---|
+| **CPU** % | `system.cpu.util` (Linux and Windows by Zabbix agent); `system.cpu.util[...]` (the SNMP templates, so **Cisco devices show their CPU, too** - the busiest CPU counts); older templates: `100 - system.cpu.util[,idle]` |
+| **Memory** % | `vm.memory.utilization` (Linux); `vm.memory.size[pused]` (Windows); `vm.memory.util[...]` (SNMP); else from `vm.memory.size[pavailable]` or `[available]` and `[total]` |
+| **Swap** % | `system.swap.size[,pused]` or `[,pfree]`; `system.swap.pfree` (Windows) |
+| **Load** | `system.cpu.load[all,avg1]` (the 1 minute average), and as a share of `system.cpu.num` CPUs |
+| **Disks** | `vfs.fs.dependent.size[<filesystem>,pused]` (and `vfs.fs.size[<filesystem>,pused]`) - the fullest six; the fullest is the one in the list and the heatmap |
+| **Uptime** | `system.uptime`, `system.boottime`, or `system.net.uptime[...]` / `system.hw.uptime[...]` (SNMP) |
+| **Network cards** | `net.if.in["ens192"]` and `net.if.out["ens192"]` as for any interface (the error and drop counters of the agent templates are not traffic and are left out); on **Linux** the state and the speed of a card come from `vfs.file.contents["/sys/class/net/<card>/operstate"]` and `.../speed`, which `Linux by Zabbix agent` collects |
+
+- **Bars are coloured with the colour scale of the links** (the legend of the weathermap), so 90 % of a disk looks like 90 % of a link. In the **list**, the columns *Type*, *CPU*, *Memory* and *Fullest disk* appear when there is something to show in them; in the **heatmap** *Colour* offers CPU, Memory and Fullest disk; **Group by › Type** separates servers from network devices.
+- **Server or network device?** A host that Zabbix reaches with an **agent interface** (and not with SNMP) is a *server*; so is a host that reports a load average, swap or disks. Everything else is a *network device*.
+- **Hosts on active checks** (no passive agent): Zabbix does not show their availability, so a server whose values are fresh counts as *up*. If Zabbix says the agent interface is unreachable, the host stays *down*.
+- **Old values are not shown.** A value that has not been updated for `stale_seconds` (default 300; filesystems: at least an hour) is left out - a dead agent does not keep showing its last CPU.
+- **It costs one more request per batch of hosts** (a light one: no names, no tags) and is read together with the rest at every refresh. If that request fails, the network view keeps working and the header chip shows a **⚠** with the reason when you point at it.
+- **What it does not do:** keys of your own templates (the keys above are the ones of Zabbix's stock templates), the disks of SNMP hosts (`vfs.fs.pused[...]`), and per-process or per-service data. A host is a "server" by its interface type, so a Linux host monitored by SNMP only is a network device with the data the SNMP template gives it.
+- The **Test** button of the Connections window (and `trunkvista.py connection test`) says how many server items it found. **`--demo`** and the standalone `trunkvista_demo.html` have six servers (Linux and Windows), a *Datacenter* weathermap and a *Servers* tab to try it with.
 
 ## Install on Debian / Ubuntu
 
@@ -612,6 +635,8 @@ The service runs as its own user `trunkvista`, sandboxed by systemd (no access t
 | Signed out again and again | the account's automatic sign-out is too short for the use: `sudo trunkvista-user set NAME --idle never` (wall display) or a longer time |
 | Page says "No account exists yet" | the installation could not make one: `sudo trunkvista-user add NAME --role admin` |
 | "This needs an administrator account" | you are signed in as a viewer |
+| A server shows no CPU / memory / disks | the Test button (Connections) says how many server items it found - 0 means no host has items with the keys in [Servers](#servers-zabbix-agent); open the host in Zabbix > Latest data and look for `system.cpu.util`, `vm.memory.util...`, `vfs.fs.dependent.size[...,pused]`; items older than 5 minutes (`stale_seconds`) are left out, so also check that the agent is alive |
+| Header chip shows ⚠ next to the host count | the request for the server data failed (the network view is not affected); point at the chip for the reason - often the API user's role may not read those items |
 | Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** (the page opens it by itself for an administrator while nothing is connected) |
 | `trunkvista-setup`: "does not answer on port ..." | the service did not start with the new settings: `journalctl -u trunkvista -n 30` (a bad certificate path, a port that is taken); undo with `sudo trunkvista-setup --local` |
 | `wget` / `install.sh`: "could not download", 404 | no internet access from this machine (a proxy?), or a private repository: download with `gh` (see [Download](#download)); with no access to GitHub at all, fetch `trunkvista-latest.tar.gz` elsewhere and copy it over |
@@ -626,7 +651,7 @@ Clone the repository only to work on the program. To *use* TrunkVista take the [
 
 ```
 python3 trunkvista.py --demo                       # run from a checkout
-python3 -m unittest discover -s tests -v              # unit tests: app, accounts and sign-in, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git)
+python3 -m unittest discover -s tests -v              # unit tests: app, server data, accounts and sign-in, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git); a few compare the standalone page's JavaScript with the server (need node)
 python3 tools/build_demo.py trunkvista_demo.html   # rebuild the standalone demo page after changing the dashboard page
 packaging/build_deb.sh                                # -> dist/trunkvista_<version>_all.deb + SHA256SUMS (needs dpkg-deb)
 sudo tests/e2e_debian.sh                              # really installs / upgrades / purges the package - only on a throw-away machine

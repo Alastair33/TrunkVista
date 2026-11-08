@@ -11,7 +11,7 @@ A weathermap dashboard for Zabbix 7.0, in your browser:
   * A built-in editor: add devices from Zabbix, drag them around, add links by picking interfaces, bend links around other devices,
     show / hide the interface names on each link and put them above or below the line, switch the problem count (notification)
     on or off for each device, move the usage meter around the map and lay it out horizontally or vertically
-  * Demo mode (--demo) with simulated Cisco gear so you can see it working without Zabbix
+  * Demo mode (--demo) with simulated Cisco gear and servers so you can see it working without Zabbix
 
 Run:
     python3 trunkvista.py --demo                 # try it, no Zabbix needed
@@ -120,7 +120,7 @@ DEFAULT_CONFIG = {
         "timeout": 20,
     },
     "poll_seconds": 30,
-    "stale_seconds": 300,     # interface data older than this is shown as "no data"
+    "stale_seconds": 300,     # interface data older than this is shown as "no data"; server data (CPU, memory, ...) older than this is left out
     "graph_minutes": 60,      # time range of the in/out graph (shown when you hover a link) until someone picks another one in the header
                               # (the nearest of 5, 10, 30, 60, 180, 360, 720, 1440, 10080, 20160, 43200 minutes)
     "min_severity": 2,        # ignore problems below this (0 n/c, 1 info, 2 warning, 3 average, 4 high, 5 disaster)
@@ -317,6 +317,145 @@ class ZabbixClient:
             return self._post("apiinfo.version", {}, auth=False)  # must be called WITHOUT auth in 7.0
 
 
+# --------------------------------------------------------------------------- host metrics (servers: Zabbix agent; also what the SNMP templates report)
+
+# Item keys read besides the interface items, as prefixes for item.get (startSearch). They are the keys of Zabbix's stock templates
+# "Linux by Zabbix agent", "Windows by Zabbix agent" and the SNMP templates (Cisco IOS ... report CPU, memory and uptime under the same names).
+METRIC_SEARCH = ("system.cpu.util", "system.cpu.load[", "system.cpu.num", "vm.memory.util", "vm.memory.size[", "system.swap.size[", "system.swap.pfree",
+                 "system.uptime", "system.boottime", "system.net.uptime[", "system.hw.uptime[", "vfs.fs.size[", "vfs.fs.dependent.size[")
+METRIC_START = ("system.", "vm.memory.", "vfs.fs.")      # a cheap test before the patterns below are tried on a key
+SYSFS_SEARCH = 'vfs.file.contents["/sys/class/net/'      # a Linux server's NIC: its state and speed come from /sys (the agent templates have no net.if.status)
+SYSFS_RX = re.compile(r'^vfs\.file\.contents\["?/sys/class/net/([^/"\]]+)/(operstate|speed)"?(?:,[^\]]*)?\]$')
+OPERSTATE = {"up": 1, "down": 2, "testing": 3, "unknown": 4, "dormant": 5, "notpresent": 6, "lowerlayerdown": 7}      # /sys/class/net/*/operstate -> ifOperStatus
+# (metric, rank, key pattern, invert). Several items can feed one metric: the lowest rank wins, and the worst value of that rank (several CPUs, memory
+# pools). invert: the item holds the FREE share, the metric is the used one. cpu / mem / swap / disk are percentages.
+METRIC_RULES = tuple((m, r, re.compile("^" + p + "$"), inv) for m, r, p, inv in (
+    ("cpu", 0, r"system\.cpu\.util", False),                                    # Linux / Windows by Zabbix agent: % busy
+    ("cpu", 1, r"system\.cpu\.util\[[^,\]]+\]", False),                         # SNMP templates: system.cpu.util[cpmCPUTotal5minRev.1]
+    ("cpu", 2, r"system\.cpu\.util\[(?:all)?,idle(?:,[a-z0-9]+)*\]", True),     # an older template: only the idle time
+    ("mem", 0, r"vm\.memory\.utili[sz]ation", False),                           # Linux by Zabbix agent
+    ("mem", 1, r"vm\.memory\.util(?:\[[^\]]*\])?", False),                      # SNMP templates: vm.memory.util[memoryUsedPercentage.1]
+    ("mem", 2, r"vm\.memory\.size\[pused\]", False),                            # Windows by Zabbix agent
+    ("mem", 3, r"vm\.memory\.size\[pavailable\]", True),
+    ("swap", 0, r"system\.swap\.size\[[^,\]]*,pused\]", False),
+    ("swap", 1, r"system\.swap\.size\[[^,\]]*,pfree\]", True),
+    ("swap", 2, r"system\.swap\.pfree", True),
+    ("load", 0, r"system\.cpu\.load\[all,avg1\]", False),
+    ("load", 1, r"system\.cpu\.load\[all,avg5\]", False),
+    ("load_pc", 0, r"system\.cpu\.load\[percpu,avg1\]", False),
+    ("cores", 0, r"system\.cpu\.num", False),
+    ("uptime", 0, r"system\.uptime", False),
+    ("uptime", 1, r"system\.(?:net|hw)\.uptime\[[^\]]*\]", False),
+    ("boottime", 0, r"system\.boottime", False),
+    ("mem_avail", 0, r"vm\.memory\.size\[available\]", False),
+    ("mem_total", 0, r"vm\.memory\.size\[total\]", False),
+))
+COUNTER_MODE_RX = re.compile(r'^[^\[]*\[(?:"(?:[^"]|"")*"|[^,\]]*),\s*"?([A-Za-z]+)"?\s*\]$')      # net.if.in["eth0",errors]: the agent's second parameter says what is counted
+AGENT_NIC_RX = re.compile(r'^net\.if\.(?:in|out)\["?([^",\]]+)')      # net.if.in["eth0"] / net.if.out[eth0,bytes]: the name is the first parameter
+FS_RX = re.compile(r'^vfs\.fs\.(?:dependent\.)?size\["?([^",\]]+)"?,pused\]$')      # one per filesystem: the share of its space that is used
+STATIC_METRICS = {"cores", "boottime", "mem_total"}       # these do not change: no freshness test
+MAX_DISKS = 6                                             # filesystems kept per host (the fullest ones)
+MAX_FS_NAME = 64                                          # characters of a filesystem's name that are kept
+
+
+def round_half_up(x, nd=1):
+    """x rounded to nd decimals, halves up (not round(): the standalone page rounds the same way)."""
+    f = 10 ** nd
+    return math.floor(x * f + 0.5) / f
+
+
+def pct_clamp(v):
+    """A percentage kept in 0..100, to one decimal."""
+    return round_half_up(min(100.0, max(0.0, v)))
+
+
+def metrics_of(items, now, stale):
+    """Host metrics from the items of METRIC_SEARCH (rows of item.get: hostid, key_, lastvalue, lastclock) -> {hostid: {cpu, mem, swap, load, cores,
+    load_pct, disk, disk_name, disks, uptime, clock}}; only what was found. An item that has not been updated for `stale` seconds (a dead agent)
+    is left out, so the page never shows last week's CPU as if it were now; filesystems, polled slowly, get at least an hour."""
+    best, disks, disk_clock = {}, {}, {}
+    for it in items:
+        key = it.get("key_") or ""
+        if not key.startswith(METRIC_START):
+            continue
+        try:
+            v = float(it["lastvalue"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if not math.isfinite(v):
+            continue
+        clock, hid = _int(it.get("lastclock")), it["hostid"]
+        fs = FS_RX.match(key)
+        if fs:
+            if not clock or now - clock <= max(stale, 3600):
+                name = fs.group(1)[:MAX_FS_NAME]
+                fsd = disks.setdefault(hid, {})
+                fsd[name] = max(fsd.get(name, 0.0), pct_clamp(v))
+                disk_clock[hid] = max(disk_clock.get(hid, 0), clock)
+            continue
+        for metric, rank, rx, inv in METRIC_RULES:
+            if not rx.match(key):
+                continue
+            if metric not in STATIC_METRICS and clock and now - clock > stale:
+                break
+            v2 = 100.0 - v if inv else v
+            slot = best.setdefault(hid, {}).get(metric)
+            if slot is None or rank < slot[0]:
+                best[hid][metric] = (rank, v2, clock)
+            elif rank == slot[0]:
+                best[hid][metric] = (rank, max(slot[1], v2), max(slot[2], clock))
+            break
+    out = {}
+    for hid in set(best) | set(disks):
+        m = host_metrics(best.get(hid, {}), disks.get(hid, {}), disk_clock.get(hid, 0), now)
+        if m:
+            out[hid] = m
+    return out
+
+
+def host_metrics(b, fs, fs_clock, now):
+    """One host: b = metric -> (rank, value, clock) of the best items, fs = filesystem -> percent used."""
+    def val(name):
+        return b[name][1] if name in b else None
+    m = {}
+    for name in ("cpu", "mem", "swap"):
+        if val(name) is not None:
+            m[name] = pct_clamp(val(name))
+    if "mem" not in m and val("mem_total") and val("mem_avail") is not None:      # no percentage item: from the bytes available and in total
+        m["mem"] = pct_clamp(100.0 * (1.0 - val("mem_avail") / val("mem_total")))
+    cores = int(val("cores")) if val("cores") and val("cores") >= 1 else None
+    if cores:
+        m["cores"] = cores
+    load = val("load")
+    if load is not None and load >= 0:
+        m["load"] = round_half_up(load, 2)
+        if cores:
+            m["load_pct"] = round_half_up(100.0 * load / cores)
+    elif val("load_pc") is not None and val("load_pc") >= 0:      # already per CPU
+        m["load_pct"] = round_half_up(100.0 * val("load_pc"))
+    up = val("uptime")
+    if up is None and val("boottime"):
+        up = now - val("boottime")
+    if up is not None and up >= 0:
+        m["uptime"] = int(up)
+    ds = sorted(fs.items(), key=lambda kv: (-kv[1], natkey(kv[0])))[:MAX_DISKS]
+    if ds:
+        m["disk"], m["disk_name"] = ds[0][1], ds[0][0]
+        m["disks"] = [{"name": n, "pct": p} for n, p in ds]
+    clocks = [e[2] for n, e in b.items() if n not in STATIC_METRICS and e[2]] + ([fs_clock] if fs_clock else [])
+    if m and clocks:
+        m["clock"] = max(clocks)      # when the freshest of these was measured (the page does not get it; the server tests with it whether the agent is alive)
+    return m
+
+
+def public_metrics(m, short=False):
+    """The metrics of one host as the page gets them (short: the headline numbers only, for the tooltip of a map node)."""
+    if not m:
+        return None
+    keys = ("cpu", "mem", "disk", "disk_name") if short else ("cpu", "mem", "swap", "load", "cores", "load_pct", "disk", "disk_name", "disks", "uptime")
+    return {k: m[k] for k in keys if k in m} or None
+
+
 class ZabbixSource:
     demo = False
 
@@ -370,10 +509,16 @@ class ZabbixSource:
         items = int(z.call("item.get", {"countOutput": True, "monitored": True,
                                         "search": {"key_": [m["in_key"], m["out_key"]]},
                                         "searchByAny": True, "startSearch": True}))
+        try:
+            server_items = int(z.call("item.get", {"countOutput": True, "monitored": True,
+                                                   "search": {"key_": ["system.cpu.util", "vm.memory.util", "vfs.fs.dependent.size[", "vfs.fs.size["]},
+                                                   "searchByAny": True, "startSearch": True}))
+        except ZabbixError:
+            server_items = None
         rows = z.call("host.get", {"output": ["hostid", "name", "status", "proxyid"], "monitored_hosts": True,
                                    "sortfield": "name", "limit": 8,
                                    "selectInterfaces": ["type", "available", "main"]})
-        return {"version": version, "hosts": hosts, "proxies": proxies, "interface_items": items,
+        return {"version": version, "hosts": hosts, "proxies": proxies, "interface_items": items, "server_items": server_items,
                 "sample": [{"id": r["hostid"], "name": r["name"], "status": self._host_state(r)} for r in rows]}
 
     def interfaces_of(self, hostid):
@@ -403,16 +548,29 @@ class ZabbixSource:
         return self._batched("item.get", hostids, ITEM_BATCH, lambda ids: {
             "output": ["itemid", "hostid", "name", "key_", "lastvalue", "lastclock", "units", "value_type"],
             "hostids": ids, "monitored": True,
-            "search": {"key_": [m["in_key"], m["out_key"], m["status_key"], m["speed_key"]]},
+            "search": {"key_": [m["in_key"], m["out_key"], m["status_key"], m["speed_key"], SYSFS_SEARCH]},
             "searchByAny": True, "startSearch": True,
             "selectTags": ["tag", "value"], "limit": ITEM_LIMIT}, ITEM_LIMIT)
+
+    def _metric_items(self, hostids):
+        """The items behind the host metrics (CPU, memory, disks, ...): a second, light request that asks for no tags and no names."""
+        return self._batched("item.get", hostids, ITEM_BATCH, lambda ids: {
+            "output": ["hostid", "key_", "lastvalue", "lastclock"], "hostids": ids, "monitored": True,
+            "search": {"key_": list(METRIC_SEARCH)}, "searchByAny": True, "startSearch": True, "limit": ITEM_LIMIT}, ITEM_LIMIT)
 
     def _kind(self, key):
         m = self.m
         for kind, pref in (("in", m["in_key"]), ("out", m["out_key"]),
                            ("status", m["status_key"]), ("speed", m["speed_key"])):
             if key.startswith(pref):
+                if kind in ("in", "out"):
+                    mode = COUNTER_MODE_RX.match(key)
+                    if mode and mode.group(1).lower() != "bytes":      # the agent's templates also have net.if.in["eth0",errors] and the like: not traffic
+                        return None
                 return kind
+        sysfs = SYSFS_RX.match(key)
+        if sysfs:      # a Linux server's NIC (Linux by Zabbix agent): operstate = "up" / "down", speed = Mbit/s
+            return "status" if sysfs.group(2) == "operstate" else "speed"
         return None
 
     def _ifname(self, it):
@@ -423,14 +581,24 @@ class ZabbixSource:
         if mm and mm.groupdict().get("ifname"):
             return mm.group("ifname").strip(), (mm.groupdict().get("alias") or "")
         mi = re.search(r"\.(\d+)\]$", it["key_"])
-        return ("idx:" + mi.group(1) if mi else it["key_"]), ""
+        if mi:
+            return "idx:" + mi.group(1), ""
+        mk = SYSFS_RX.match(it["key_"]) or AGENT_NIC_RX.match(it["key_"])      # a server's NIC: net.if.in["eth0"], .../sys/class/net/eth0/operstate
+        return (mk.group(1) if mk else it["key_"]), ""
 
     @staticmethod
     def _value(it, kind):
+        sysfs = SYSFS_RX.match(it.get("key_") or "")
+        if kind == "status" and sysfs:
+            word = str(it.get("lastvalue") or "").strip().lower()
+            if word in OPERSTATE:      # the kernel's word -> the number SNMP would have said
+                return float(OPERSTATE[word])
         try:
             v = float(it["lastvalue"])
         except (TypeError, ValueError):
             return None
+        if kind == "speed" and sysfs:      # the kernel says Mbit/s (-1: it does not know); a template may have multiplied it to bit/s already
+            return None if v <= 0 else (v * 1e6 if v < 1e6 else v)
         raw_units = (it.get("units") or "").strip()
         if kind in ("in", "out") and raw_units in ("Bps", "B/s"):  # bytes per second -> bits per second
             v *= 8                                                  # (case matters: "bps" is already bits)
@@ -538,8 +706,28 @@ class ZabbixSource:
             return ""
         return pick("os_short", "os", "os_full"), pick("model", "hardware")
 
+    def _metrics(self, hostids, now):
+        """(metrics per host, warning). A failed request for the metrics must not take the network view down with it: the warning goes to the page's status."""
+        try:
+            return metrics_of(self._metric_items(hostids), now, self.cfg["stale_seconds"]), ""
+        except ZabbixError as e:
+            if e.auth:
+                raise
+            return {}, f"server metrics: {e}"[:300]
+
+    @staticmethod
+    def _host_kind(h, metrics):
+        """"server" for a host that Zabbix reaches with its agent (and not with SNMP), or that reports load / disks / swap; else "network"."""
+        types = {str(i.get("type")) for i in h.get("interfaces") or []}
+        if "1" in types and "2" not in types:
+            return "server"
+        if metrics and any(k in metrics for k in ("load", "disk", "swap", "cores")):
+            return "server"
+        return "network"
+
     def snapshot(self, hostids, min_sev):
-        snap = {"ts": time.time(), "hosts": {}, "interfaces": {}}
+        now = time.time()
+        snap = {"ts": now, "hosts": {}, "interfaces": {}, "metrics": {}, "warn": ""}
         hostids = sorted(set(hostids))
         if not hostids:
             return snap
@@ -566,10 +754,15 @@ class ZabbixSource:
             seen_t.add(t["triggerid"])
             for h in t.get("hosts", []):
                 per.setdefault(h["hostid"], []).append({"name": t["description"], "severity": int(t["priority"])})
+        snap["metrics"], snap["warn"] = self._metrics(hostids, now)
         for h in hosts:
             probs = sorted(per.get(h["hostid"], []), key=lambda p: -p["severity"])
+            met = snap["metrics"].get(h["hostid"])
+            kind, state = self._host_kind(h, met), self._host_state(h)
+            if state == "unknown" and kind == "server" and met and now - met.get("clock", 0) <= self.cfg["stale_seconds"]:
+                state = "up"      # a server on active checks has no agent availability to show; fresh values prove it is alive
             snap["hosts"][h["hostid"]] = {
-                "id": h["hostid"], "name": h["name"], "status": self._host_state(h), "ip": self._host_ip(h),
+                "id": h["hostid"], "name": h["name"], "kind": kind, "status": state, "ip": self._host_ip(h),
                 "os": self._inventory(h)[0], "model": self._inventory(h)[1],
                 "proxy": proxies.get(h.get("proxyid"), "") if h.get("proxyid") not in (None, "0") else "",
                 "severity": probs[0]["severity"] if probs else 0, "problems": len(probs), "top": probs[:5]}
@@ -589,17 +782,28 @@ DEMO_HOSTS = [
     ("10006", "ce-c8200l-2", "Proxy-B", "Cisco edge", "edge"),
     ("10007", "ce-c8200l-3", "Proxy-B", "Cisco edge", "edge"),
     ("10008", "dist-c9300-stack", "Proxy-A", "Cisco core", "core"),
+    ("10011", "srv-web-01", "Proxy-A", "Linux servers", "server"),
+    ("10012", "srv-web-02", "Proxy-B", "Linux servers", "server"),
+    ("10013", "srv-db-01", "Proxy-A", "Linux servers", "server"),
+    ("10014", "srv-db-02", "Proxy-B", "Linux servers", "server"),
+    ("10015", "srv-app-01", "Proxy-A", "Windows servers", "winserver"),
+    ("10016", "srv-backup-01", "Proxy-B", "Linux servers", "server"),
 ]
 DEMO_INFO = {      # host inventory the demo "reports": id -> (operating system, device model); ce-c8200l-2 has none, to show the "unknown" group
     "10001": ("Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"), "10002": ("Cisco IOS XE 17.9.4", "Catalyst C9500-24Y4C"),
     "10003": ("Cisco IOS XE 17.9.4", "C8300-2N2S-4T2X"), "10004": ("Cisco IOS XE 17.6.5", "C8300-2N2S-4T2X"),
     "10005": ("Cisco IOS XE 17.9.4", "C8200L-1N-4T"), "10006": ("", ""), "10007": ("Cisco IOS XE 17.6.5", "C8200L-1N-4T"),
     "10008": ("Cisco IOS XE 17.6.5", "Catalyst C9300-48P"),
+    "10011": ("Ubuntu 22.04.4 LTS", "Dell PowerEdge R650"), "10012": ("Ubuntu 22.04.4 LTS", "Dell PowerEdge R650"),
+    "10013": ("Rocky Linux 9.3", "HPE ProLiant DL380 Gen10"), "10014": ("Rocky Linux 9.3", "HPE ProLiant DL380 Gen10"),
+    "10015": ("Windows Server 2022", "Dell PowerEdge R750"), "10016": ("Debian 12", "Supermicro SYS-6029P"),
 }
 DEMO_IFACES = {
     "core": [("Te1/0/%d" % i, 10e9) for i in range(1, 7)],
     "router": [("Gi0/0/0", 1e9), ("Gi0/0/1", 1e9), ("Te0/0/2", 10e9), ("Te0/0/3", 10e9)],
     "edge": [("Gi0/0/0", 1e9), ("Gi0/0/1", 1e9), ("Gi0/1/0", 1e9)],
+    "server": [("ens192", 10e9), ("ens224", 1e9)],      # a Linux server: the data NIC (linked to a core switch) and a management NIC
+    "winserver": [("Ethernet0", 10e9), ("Ethernet1", 1e9)],
 }
 DEMO_LINKS = [  # id, hostA, ifA, hostB, ifB, name
     ("L1", "10001", "Te1/0/1", "10002", "Te1/0/1", "Core interconnect"),
@@ -612,7 +816,22 @@ DEMO_LINKS = [  # id, hostA, ifA, hostB, ifB, name
     ("L8", "10004", "Gi0/0/1", "10006", "Gi0/0/1", "Branch 2 (backup)"),
     ("L9", "10001", "Te1/0/3", "10008", "Te1/0/1", "Core1 - Dist"),
     ("L10", "10002", "Te1/0/3", "10008", "Te1/0/2", "Core2 - Dist"),
+    ("L11", "10001", "Te1/0/4", "10011", "ens192", "Core1 - web-01"),
+    ("L12", "10002", "Te1/0/4", "10012", "ens192", "Core2 - web-02"),
+    ("L13", "10001", "Te1/0/5", "10013", "ens192", "Core1 - db-01"),
+    ("L14", "10002", "Te1/0/5", "10014", "ens192", "Core2 - db-02"),
+    ("L15", "10001", "Te1/0/6", "10015", "Ethernet0", "Core1 - app-01"),
+    ("L16", "10002", "Te1/0/6", "10016", "ens192", "Core2 - backup-01"),
 ]
+# The demo's agent hosts: id -> (CPU cores, always busy, filesystems and their percent used). Everything else about them is derived in DemoSource.
+DEMO_SERVERS = {
+    "10011": (8, False, [("/", 41.0), ("/var", 58.0)]),
+    "10012": (8, False, [("/", 38.0), ("/var", 52.0)]),
+    "10013": (32, True, [("/", 47.0), ("/var/lib/pgsql", 86.0)]),
+    "10014": (32, False, [("/", 44.0), ("/var/lib/pgsql", 71.0)]),
+    "10015": (16, False, [("C:", 63.0), ("D:", 77.0)]),
+    "10016": (4, False, [("/", 29.0), ("/backup", 93.0)]),
+}
 DEMO_ACCESS = 120      # extra access switches (acc-sw-001 ..) that only the "All devices" tab lists - so there is something to page through
 
 
@@ -633,6 +852,7 @@ class DemoSource:
     def __init__(self):
         self.hosts = {}
         self.peer = {}
+        self.started = time.time()      # the demo hosts "booted" some days before this (see _metrics_at)
         for hid, name, proxy, group, role in DEMO_HOSTS:
             self.hosts[hid] = {"name": name, "proxy": proxy, "group": group,
                                "ifs": {n: {"speed": s, "alias": ""} for n, s in DEMO_IFACES[role]}}
@@ -732,9 +952,34 @@ class DemoSource:
             out.append(pts)
         return out
 
+    def _metrics_at(self, hid, t, cpu_hi=False, mem_hi=False):
+        """What a host 'reports' at time t, shaped like metrics_of() makes it from real items: a server - CPU, memory, swap, load, disks, uptime
+        (a Windows server has no load average); a Cisco device - CPU, memory and uptime. cpu_hi / mem_hi: the demo has a problem on it just now."""
+        h = zlib.crc32(("m" + hid).encode())
+        wave = 0.5 + 0.5 * math.sin(t / 95.0 + (h % 628) / 100.0)
+        noise = ((zlib.crc32(f"m{hid}:{int(t // 6)}".encode()) % 1000) / 1000.0 - 0.5) * 4.0
+        up = (2 + h % 120) * 86400 + (t - self.started)
+        srv = DEMO_SERVERS.get(hid)
+        if not srv:
+            cpu = 93.0 + 4.0 * wave if cpu_hi else (5 + h % 28) * (0.55 + 0.9 * wave) + noise
+            mem = 91.0 + 4.0 * wave if mem_hi else 28 + (h >> 5) % 40 + 5 * wave
+            return {"cpu": pct_clamp(cpu), "mem": pct_clamp(mem), "uptime": int(up)}
+        cores, busy, disks = srv
+        cpu = pct_clamp(80 + 17 * wave if busy else (8 + h % 32) * (0.5 + wave) + noise)
+        m = {"cpu": cpu, "mem": pct_clamp(38 + (h >> 5) % 40 + 7 * wave), "swap": pct_clamp(2 + (h >> 9) % 9 + (30 * wave if busy else 2 * wave)),
+             "cores": cores}
+        if hid != "10015":
+            load = round_half_up(cores * cpu / 100.0 * 1.1, 2)
+            m["load"], m["load_pct"] = load, pct_clamp(100.0 * load / cores)
+        ds = sorted(((n, pct_clamp(p + 1.2 * math.sin(t / 3600.0 + (h % 100)))) for n, p in disks), key=lambda x: (-x[1], natkey(x[0])))
+        m["disk"], m["disk_name"] = ds[0][1], ds[0][0]
+        m["disks"] = [{"name": n, "pct": p} for n, p in ds]
+        m["uptime"] = int(up)
+        return m
+
     def snapshot(self, hostids, min_sev):
         t = time.time()
-        snap = {"ts": t, "hosts": {}, "interfaces": {}}
+        snap = {"ts": t, "hosts": {}, "interfaces": {}, "metrics": {}, "warn": ""}
         for hid in sorted(set(hostids)):
             h = self.hosts.get(hid)
             if not h:
@@ -756,8 +1001,24 @@ class DemoSource:
                     probs.append({"name": "High memory utilization (>90% for 5m)", "severity": 2})
                 if status == "up" and acc % 23 == 0:
                     probs.append({"name": "High CPU utilization (over 90% for 5m)", "severity": 3})
+            if hid in DEMO_SERVERS:
+                ip = "10.20.0.%d" % (int(hid) - 10000)
+            cpu_hi = any(p["name"].startswith("High CPU") for p in probs)
+            mem_hi = any(p["name"].startswith("High memory") for p in probs)
+            if status == "up":      # a switch that is down reports nothing
+                met = self._metrics_at(hid, t, cpu_hi, mem_hi)
+                snap["metrics"][hid] = met
+                if hid in DEMO_SERVERS:      # what Zabbix's stock triggers would say about these numbers
+                    if met["cpu"] > 90:
+                        probs.append({"name": "High CPU utilization (over 90% for 5m)", "severity": 3})
+                    if met["mem"] > 90:
+                        probs.append({"name": "High memory utilization (>90% for 5m)", "severity": 2})
+                    for d in met["disks"]:
+                        if d["pct"] > 90:
+                            probs.append({"name": "%s: Free disk space is less than 10%%" % d["name"], "severity": 3})
             probs = [p for p in probs if p["severity"] >= min_sev]
-            snap["hosts"][hid] = {"id": hid, "name": h["name"], "status": status, "proxy": h["proxy"], "ip": ip, "os": os_, "model": model,
+            snap["hosts"][hid] = {"id": hid, "name": h["name"], "kind": "server" if hid in DEMO_SERVERS else "network",
+                                  "status": status, "proxy": h["proxy"], "ip": ip, "os": os_, "model": model,
                                   "severity": max([p["severity"] for p in probs], default=0),
                                   "problems": len(probs), "top": probs}
             ifs = {}
@@ -793,12 +1054,21 @@ def demo_layout():
                     node("n-e3", "10007", 1050, 440)],
           "links": [link("L5", "n-p1", "n-e1"), link("L6", "n-p1", "n-e2"), link("L7", "n-p2", "n-e3"),
                     link("L8", "n-p2", "n-e2")]}
+    dc = {"name": "Datacenter", "width": 1200, "height": 600,
+          "nodes": [node("n-c1", "10001", 330, 130), node("n-c2", "10002", 870, 130),
+                    node("n-s1", "10011", 100, 440), node("n-s3", "10013", 330, 440), node("n-s5", "10015", 560, 440),
+                    node("n-s2", "10012", 640, 440), node("n-s4", "10014", 870, 440), node("n-s6", "10016", 1100, 440)],
+          "links": [link("L1", "n-c1", "n-c2"), link("L11", "n-c1", "n-s1"), link("L13", "n-c1", "n-s3"), link("L15", "n-c1", "n-s5"),
+                    link("L12", "n-c2", "n-s2"), link("L14", "n-c2", "n-s4"), link("L16", "n-c2", "n-s6")]}
     return {
         "version": 1,
-        "maps": {"m-wan": wan, "m-br": br},
+        "maps": {"m-wan": wan, "m-br": br, "m-dc": dc},
         "tabs": [
             {"id": "t-wan", "name": "Core & WAN", "type": "map", "map": "m-wan"},
             {"id": "t-br", "name": "Branches", "type": "map", "map": "m-br"},
+            {"id": "t-dc", "name": "Datacenter", "type": "map", "map": "m-dc"},
+            {"id": "t-srv", "name": "Servers", "type": "devices", "hosts": [], "hostnames": {},
+             "groups": ["Linux servers", "Windows servers"], "ifaces": 2},
             {"id": "t-rt", "name": "Routers", "type": "devices", "hosts": [], "hostnames": {},
              "groups": ["Cisco WAN routers", "Cisco edge"], "ifaces": 4},
             {"id": "t-core", "name": "Core switches", "type": "devices", "hosts": ["10001", "10002", "10008"],
@@ -809,6 +1079,7 @@ def demo_layout():
         ],
         "playlists": [{"id": "p-noc", "name": "NOC wall", "loop": True,
                        "items": [{"tab": "t-wan", "seconds": 20}, {"tab": "t-br", "seconds": 20},
+                                 {"tab": "t-dc", "seconds": 20}, {"tab": "t-srv", "seconds": 15},
                                  {"tab": "t-rt", "seconds": 15}, {"tab": "t-core", "seconds": 15}]}],
         "settings": {},
     }
@@ -1171,7 +1442,7 @@ class App:
         self.last_refresh = 0.0
         self.active, self.conn_name, self.is_demo = "", "", False
         self.source, self.store = None, Store(None, live_starter_layout)
-        self.snap, self.group_ids, self.all_ids, self.all_cut = {"ts": 0, "hosts": {}, "interfaces": {}}, {}, [], False
+        self.snap, self.group_ids, self.all_ids, self.all_cut = {"ts": 0, "hosts": {}, "interfaces": {}, "metrics": {}}, {}, [], False
         self.status = {}
         self.activate(start, persist)
 
@@ -1213,7 +1484,7 @@ class App:
             self.source, self.store = source, store
             with self.gmu:
                 self.gcache.clear()
-            self.snap, self.group_ids, self.all_ids, self.all_cut = {"ts": 0, "hosts": {}, "interfaces": {}}, {}, [], False
+            self.snap, self.group_ids, self.all_ids, self.all_cut = {"ts": 0, "hosts": {}, "interfaces": {}, "metrics": {}}, {}, [], False
             self.status = {"ok": False, "error": err or "waiting for first poll", "last_ok": 0, "last_try": 0,
                            "seconds": 0, "version": "", "hosts": 0, "demo": self.is_demo, "conn": name}
             if persist:
@@ -1278,7 +1549,7 @@ class App:
             if source is not self.source:      # the connection was switched while we were polling: drop this result
                 return
             self.snap, self.group_ids, self.all_ids, self.all_cut = snap, group_ids, all_ids, all_cut
-            self.status.update(ok=True, error="", last_ok=time.time(), seconds=round(time.time() - t0, 2),
+            self.status.update(ok=True, error="", warn=snap.get("warn", ""), last_ok=time.time(), seconds=round(time.time() - t0, 2),
                                version=version, hosts=len(snap["hosts"]))
         except Exception as e:  # keep serving the last good data
             if source is self.source:
@@ -1420,7 +1691,8 @@ class App:
                 h = self.snap["hosts"].get(n["host"]) or {}
                 out["nodes"].append({"id": n["id"], "name": h.get("name", ""), "status": h.get("status", "unknown"),
                                      "severity": h.get("severity", 0), "problems": h.get("problems", 0),
-                                     "proxy": h.get("proxy", ""), "top": h.get("top", [])})
+                                     "proxy": h.get("proxy", ""), "top": h.get("top", []), "kind": h.get("kind", "network"),
+                                     "metrics": public_metrics(self.snap.get("metrics", {}).get(n["host"]), short=True)})
             out["links"] = [self.resolve_link(l, nodes, now) for l in m["links"]]
         else:
             ids = list(tab["hosts"])
@@ -1439,7 +1711,7 @@ class App:
                 if not h:
                     cards.append({"id": hid, "name": tab["hostnames"].get(hid, hid), "status": "unknown", "ip": "",
                                   "os": "", "model": "", "severity": 0, "problems": 0, "proxy": "", "top": [], "ifaces": [],
-                                  "if_total": 0, "if_down": 0})
+                                  "if_total": 0, "if_down": 0, "kind": "network", "metrics": None})
                     continue
                 ifs = []
                 for name, r in (self.snap["interfaces"].get(hid) or {}).items():
@@ -1453,7 +1725,8 @@ class App:
                               "os": h.get("os", ""), "model": h.get("model", ""), "severity": h["severity"],
                               "problems": h["problems"], "proxy": h["proxy"], "top": h["top"][:3],
                               "ifaces": up[: tab["ifaces"]], "if_total": len(ifs),
-                              "if_down": sum(1 for i in ifs if i["oper"] in DOWN_STATES)})
+                              "if_down": sum(1 for i in ifs if i["oper"] in DOWN_STATES),
+                              "kind": h.get("kind", "network"), "metrics": public_metrics(self.snap.get("metrics", {}).get(hid))})
             cards.sort(key=lambda c: c["name"].lower())
             out["cards"] = cards
         return out
@@ -1626,6 +1899,10 @@ table.dt{width:100%;min-width:1120px;border-collapse:separate;border-spacing:0;f
 .dt .pbar{display:inline-block;width:64px;height:8px;border-radius:4px;background:var(--line);overflow:hidden;vertical-align:middle;margin:0 8px}
 .dt .pbar i{display:block;height:100%}
 .dt .pv{font-size:12px;color:var(--muted);white-space:nowrap}
+.dt .kc{white-space:nowrap;font-size:12px}      /* Type and Proxy: one line each, so the wide table does not wrap them */
+.dt .mc{white-space:nowrap}      /* CPU / Memory / Disk: a short bar and the number */
+.dt .mc .pbar{width:44px;margin:0 6px 0 0}
+.dt .mc .pv{display:inline-block;max-width:150px;overflow:hidden;text-overflow:ellipsis;vertical-align:middle}
 .dt tr.det td{background:var(--det);padding:8px 14px 12px 32px}
 .dt .dif{max-width:520px;margin-top:6px}
 .ctx{position:fixed;z-index:80;min-width:200px;max-width:300px;background:var(--panel);border:1px solid var(--line);border-radius:10px;box-shadow:0 12px 32px var(--shadow);padding:5px}
@@ -1811,6 +2088,7 @@ async function api(path, opts = {}) {
 // ---------- formatting & colours
 const fmtBps = v => v == null ? "n/a" : v >= 1e9 ? (v / 1e9).toFixed(2) + " Gbps" : v >= 1e6 ? (v / 1e6).toFixed(v >= 1e8 ? 0 : 1) + " Mbps" : v >= 1e3 ? (v / 1e3).toFixed(0) + " kbps" : Math.round(v) + " bps";
 const fmtPct = p => p == null ? "n/a" : p < 10 ? p.toFixed(1) + "%" : Math.round(p) + "%";
+const fmtUp = s => s == null ? "n/a" : s >= 86400 ? Math.floor(s / 86400) + " d " + Math.floor(s % 86400 / 3600) + " h" : s >= 3600 ? Math.floor(s / 3600) + " h " + Math.floor(s % 3600 / 60) + " min" : Math.max(0, Math.floor(s / 60)) + " min";      // uptime, from seconds
 const ago = ts => { if (!ts) return "never"; const s = Math.max(0, Math.round(Date.now() / 1000 - ts)); return s < 90 ? s + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : Math.round(s / 3600) + "h ago"; };
 // Link usage colours, from the usage % each step starts at. The first step also covers anything below it (an idle link is light green); the last one has no upper end.
 const SCALE_DEFAULT = [[1, "#86efac"], [10, "#22c55e"], [25, "#a3e635"], [40, "#facc15"], [55, "#fb923c"], [70, "#f97316"]];
@@ -2196,7 +2474,7 @@ function drawNode(layer, n, v, g) {
     grp.append(svg("circle", { class: "pbadge", cx: bx, cy: by, r: 9, fill: SEV[v.severity] || SEV[2], stroke: TV.edge }));
     grp.append(svg("text", { class: "pbadge", x: bx, y: by + 4, "text-anchor": "middle", "font-size": 11, "font-weight": 700, fill: "#fff", text: v.problems > 9 ? "9+" : v.problems }));
   }
-  grp.addEventListener("mouseenter", e => { if (dragging || ctxEl) return; const lines = [g.label, "Status: " + (v ? v.status : "unknown")]; if (!notify) lines.push("Notifications are off for this device"); for (const p of (v && v.top) || []) lines.push("• [" + SEVN[p.severity] + "] " + p.name); tipShow(e, lines); });
+  grp.addEventListener("mouseenter", e => { if (dragging || ctxEl) return; const lines = [g.label, "Status: " + (v ? v.status : "unknown")]; if (v && v.metrics) lines.push(nodeMetricLine(v.metrics)); if (!notify) lines.push("Notifications are off for this device"); for (const p of (v && v.top) || []) lines.push("• [" + SEVN[p.severity] + "] " + p.name); tipShow(e, lines); });
   grp.addEventListener("mousemove", tipMove);
   grp.addEventListener("mouseleave", tipHide);
   grp.addEventListener("pointerdown", e => { if (editing && e.button === 0) startDrag(e, n); });
@@ -2287,10 +2565,10 @@ function startDrag(e, n) {
 }
 
 // ---------- devices tab (cards, list or heatmap)
-const DEV_KEYS = ["name", "ip", "status", "proxy", "model", "os", "problems", "ifs", "busy"], DEV_GROUPS = ["none", "status", "proxy", "problems", "ip", "name", "os", "model"];
+const DEV_KEYS = ["name", "ip", "status", "kind", "proxy", "model", "os", "problems", "ifs", "busy", "cpu", "mem", "disk"], DEV_GROUPS = ["none", "status", "kind", "proxy", "problems", "ip", "name", "os", "model"];
 const PER_CHOICES = [10, 25, 50, 100, 200, 500];      // devices per page
-const HEAT_KEYS = ["status", "busy", "sev"];      // what the heatmap tiles are coloured by (HEAT_METRICS below)
-const DEVUI = { q: "", only: false, key: "name", dir: 1, group: "none", per: 50, heat: "status", pages: {}, open: new Set(), closed: new Set() };      // filter / sort / group / page size / expanded rows, shared by all device tabs; pages = current page of each tab
+const HEAT_KEYS = ["status", "busy", "cpu", "mem", "disk", "sev"];      // what the heatmap tiles are coloured by (HEAT_METRICS below)
+const DEVUI = { has: {}, q: "", only: false, key: "name", dir: 1, group: "none", per: 50, heat: "status", pages: {}, open: new Set(), closed: new Set() };      // filter / sort / group / page size / expanded rows, shared by all device tabs; pages = current page of each tab
 try {      // sort, group and "only issues" are remembered in this browser
   const s = JSON.parse(localStorage.getItem("trunkvista-devui") || "{}");
   if (DEV_KEYS.includes(s.key)) DEVUI.key = s.key;
@@ -2315,16 +2593,23 @@ const DCOLS = [
   { k: "name", t: "Device", v: c => c.name.toLowerCase() },
   { k: "ip", t: "IP address", v: c => ipSortKey(c.ip) },
   { k: "status", t: "Status", v: c => ST_RANK[c.status] == null ? 1 : ST_RANK[c.status] },
+  { k: "kind", t: "Type", m: 1, v: c => c.kind === "server" ? 1 : 0 },      // m: shown only when the list has such data (see drawDevices)
   { k: "proxy", t: "Proxy", v: c => c.proxy ? c.proxy.toLowerCase() : "~" },
   { k: "model", t: "Model", v: c => c.model ? c.model.toLowerCase() : "~" },
   { k: "os", t: "OS", v: c => c.os ? c.os.toLowerCase() : "~" },
   { k: "problems", t: "Problems", desc: true, v: c => (c.problems || 0) * 10 + (c.severity || 0) },
   { k: "ifs", t: "Interfaces", desc: true, v: c => c.if_down * 1000 + c.if_total },
   { k: "busy", t: "Busiest interface", desc: true, v: c => (c.ifaces[0] && c.ifaces[0].pct != null) ? c.ifaces[0].pct : -1 },
+  { k: "cpu", t: "CPU", m: 1, desc: true, v: c => metPct("cpu")(c) == null ? -1 : metPct("cpu")(c) },
+  { k: "mem", t: "Memory", m: 1, desc: true, v: c => metPct("mem")(c) == null ? -1 : metPct("mem")(c) },
+  { k: "disk", t: "Fullest disk", m: 1, desc: true, v: c => metPct("disk")(c) == null ? -1 : metPct("disk")(c) },
 ];
+const devCols = () => DCOLS.filter(c => !c.m || DEVUI.has[c.k]);      // Type / CPU / Memory / Fullest disk: only when some device in the list has such data
+const metPct = k => c => c.metrics && c.metrics[k] != null ? c.metrics[k] : null;      // CPU / memory / swap / fullest disk of a device, in percent (or null)
 // "Group by" choices: of = which group a device falls in, label = group heading, ord = how groups are ordered, desc = natural direction (most first)
 const GROUPS = {
   status:   { t: "Status",              of: c => c.status || "unknown", label: g => g, ord: g => ST_RANK[g] == null ? 1 : ST_RANK[g], desc: false },
+  kind:     { t: "Type",                of: c => c.kind === "server" ? "server" : "network", label: g => g === "server" ? "Servers (Zabbix agent)" : "Network devices", ord: g => g === "server" ? 1 : 0, desc: false },
   proxy:    { t: "Proxy",               of: c => c.proxy || "", label: g => g || "No proxy (direct)", ord: g => g ? g.toLowerCase() : "~", desc: false },
   problems: { t: "Most problems",       of: c => c.problems || 0, label: g => g ? g + (g === 1 ? " problem" : " problems") : "No problems", ord: g => g, desc: true },
   ip:       { t: "IP address (subnet)", of: c => subnet24(c.ip), label: g => g || "Hostname / no IPv4 address", ord: g => g ? ipSortKey(g.split("/")[0]) : "2", desc: false },
@@ -2357,10 +2642,35 @@ function ifLine(i) {
     el("div", { class: "bar" }, el("i", { style: `width:${clamp(i.pct || 0, 0, 100)}%;background:${colorFor(i.pct)}` })),
     el("span", {}, fmtPct(i.pct) + " · ↓" + fmtBps(i.in_bps).replace(" ", "") + " ↑" + fmtBps(i.out_bps).replace(" ", "")));
 }
+function metricLine(label, pct, tip, extra) {
+  return el("div", { class: "if", title: tip || "" }, el("span", { class: "grow" }, label),
+    el("div", { class: "bar" }, el("i", { style: `width:${clamp(pct || 0, 0, 100)}%;background:${colorFor(pct)}` })), el("span", {}, fmtPct(pct) + (extra || "")));
+}
+function metricLines(m) {      // CPU, memory, swap and the fullest disks of a host, as bars like the interface lines (the colour scale is the one of the links)
+  if (!m) return [];
+  const out = [];
+  if (m.cpu != null) out.push(metricLine("CPU", m.cpu, m.cores ? m.cores + (m.cores === 1 ? " CPU" : " CPUs") : "", m.load != null ? " · load " + m.load.toFixed(2) : ""));
+  if (m.mem != null) out.push(metricLine("Memory", m.mem));
+  if (m.swap != null) out.push(metricLine("Swap", m.swap));
+  for (const d of (m.disks || []).slice(0, 2)) out.push(metricLine("Disk", d.pct, "Filesystem " + d.name, " · " + d.name));
+  return out;
+}
+function metricTipLines(m) {      // the same for a tooltip (a device in the heatmap)
+  if (!m) return [];
+  const p = (n, v) => v != null ? n + " " + fmtPct(v) : null, j = a => a.filter(Boolean).join(" · ");
+  return [j([p("CPU", m.cpu), p("Memory", m.mem), p("Swap", m.swap)]),
+    j([m.load != null ? "Load " + m.load.toFixed(2) + (m.load_pct != null ? " (" + fmtPct(m.load_pct) + " of " + m.cores + " CPUs)" : "") : null, m.uptime != null ? "Up " + fmtUp(m.uptime) : null]),
+    (m.disks || []).length ? "Disk " + m.disks.slice(0, 3).map(d => d.name + " " + fmtPct(d.pct)).join(" · ") : ""].filter(Boolean);
+}
+function nodeMetricLine(m) {      // CPU, memory and the fullest disk of a device on the map (its tooltip)
+  if (!m) return "";
+  return [m.cpu != null ? "CPU " + fmtPct(m.cpu) : null, m.mem != null ? "Memory " + fmtPct(m.mem) : null, m.disk != null ? "Disk " + fmtPct(m.disk) + (m.disk_name ? " (" + m.disk_name + ")" : "") : null].filter(Boolean).join(" · ");
+}
 function cardBody(c) {      // what a card shows under its name; the heatmap shows the same in its detail dialog
   return [
-    el("div", { class: "meta" }, el("span", {}, c.status), c.ip ? el("span", {}, c.ip) : null, c.model ? el("span", { title: "Device model" }, c.model) : null, c.os ? el("span", { title: "Operating system" }, c.os) : null, c.proxy ? el("span", {}, "via " + c.proxy) : null, c.problems ? el("span", { style: "color:var(--warnfg)" }, c.problems + " problem" + (c.problems > 1 ? "s" : "")) : null, c.if_total ? el("span", {}, c.if_total + " interfaces" + (c.if_down ? " (" + c.if_down + " down)" : "")) : null),
+    el("div", { class: "meta" }, el("span", {}, c.status), c.kind === "server" ? el("span", { title: "Monitored by the Zabbix agent" }, "server") : null, c.metrics && c.metrics.uptime != null ? el("span", { title: "Uptime" }, "up " + fmtUp(c.metrics.uptime)) : null, c.ip ? el("span", {}, c.ip) : null, c.model ? el("span", { title: "Device model" }, c.model) : null, c.os ? el("span", { title: "Operating system" }, c.os) : null, c.proxy ? el("span", {}, "via " + c.proxy) : null, c.problems ? el("span", { style: "color:var(--warnfg)" }, c.problems + " problem" + (c.problems > 1 ? "s" : "")) : null, c.if_total ? el("span", {}, c.if_total + " interfaces" + (c.if_down ? " (" + c.if_down + " down)" : "")) : null),
     c.top.map(p => probEl(p)),
+    metricLines(c.metrics),
     c.ifaces.map(ifLine)];
 }
 function cardEl(c) {
@@ -2373,19 +2683,23 @@ function cardEl(c) {
 // as well, so the colour is never the only signal. Hover shows the details, click opens them in a dialog.
 const busyPct = c => c.ifaces && c.ifaces[0] && c.ifaces[0].pct != null ? c.ifaces[0].pct : null;
 const SEV_NC = "#94a3b8";      // a problem of severity "Not classified": lighter than the grey of "no data"
+const usageLegend = () => { const sc = scale(); return [...sc.map(([t, col], i) => [col, sc.length === 1 ? "any usage" : i === 0 ? "< " + sc[1][0] + "%" : i === sc.length - 1 ? t + "%+" : t + "–" + sc[i + 1][0] + "%"]), [DEV_GREY, "No data"]]; };
+const usageMetric = (t, get) => ({ t, color: c => colorFor(get(c)), text: c => get(c) == null ? "–" : fmtPct(get(c)), legend: usageLegend });      // tiles coloured by a percentage, with the link colour scale
 const HEAT_METRICS = {
   status: { t: "Status", color: devColor,
     text: c => c.status === "down" ? "Down" : c.status === "disabled" ? "Not monitored" : c.problems > 0 ? c.problems + (c.problems === 1 ? " problem" : " problems") : c.status === "up" ? "Up" : "No data",
     legend: () => [[DEV_GRN, "Up, no problems"], [DEV_YEL, "Up, with problems"], [DEV_RED, "Down"], [DEV_GREY, "Not monitored / no data"]] },
-  busy: { t: "Busiest interface", color: c => colorFor(busyPct(c)), text: c => busyPct(c) == null ? "–" : fmtPct(busyPct(c)),
-    legend: () => { const sc = scale(); return [...sc.map(([t, col], i) => [col, sc.length === 1 ? "any usage" : i === 0 ? "< " + sc[1][0] + "%" : i === sc.length - 1 ? t + "%+" : t + "–" + sc[i + 1][0] + "%"]), [DEV_GREY, "No data"]]; } },
+  busy: usageMetric("Busiest interface", busyPct),
+  cpu: usageMetric("CPU", metPct("cpu")),
+  mem: usageMetric("Memory", metPct("mem")),
+  disk: usageMetric("Fullest disk", metPct("disk")),
   sev: { t: "Worst problem", color: c => c.problems > 0 ? (SEV[c.severity] && c.severity > 0 ? SEV[c.severity] : SEV_NC) : c.status === "up" ? DEV_GRN : DEV_GREY,
     text: c => c.problems > 0 ? (SEVN[c.severity] || "Problem") + (c.problems > 1 ? " ×" + c.problems : "") : c.status === "up" ? "No problems" : c.status === "disabled" ? "Not monitored" : "No data",
     legend: () => [[DEV_GRN, "No problems"], [SEV_NC, SEVN[0]], ...[1, 2, 3, 4, 5].map(i => [SEV[i], SEVN[i]]), [DEV_GREY, "No data"]] },
 };
 function devTipLines(c) {
   const ids = [c.ip, c.model, c.os, c.proxy ? "via " + c.proxy : ""].filter(Boolean).join(" · ");
-  return [c.name, devState(c), ids, ...c.top.map(p => (SEVN[p.severity] || "Problem") + ": " + p.name),
+  return [c.name, devState(c), ids, ...c.top.map(p => (SEVN[p.severity] || "Problem") + ": " + p.name), ...metricTipLines(c.metrics),
     ...c.ifaces.map(i => i.name + "  " + fmtPct(i.pct) + " · ↓" + fmtBps(i.in_bps).replace(" ", "") + " ↑" + fmtBps(i.out_bps).replace(" ", "")), "Click for details"].filter(Boolean);
 }
 function heatTile(c, M) {
@@ -2420,26 +2734,30 @@ function devRows(c) {
     el("td", { class: "nm", style: "border-left:4px solid " + col }, el("span", { class: "twisty" }, open ? "▾" : "▸"), el("span", { class: "dot", style: "background:" + col, title: devState(c) }), c.name),
     el("td", { class: "mono" }, c.ip || "–"),
     el("td", {}, el("span", { class: "st", style: "color:" + stateColor(c.status) + ";border-color:" + stateColor(c.status) }, c.status)),
-    el("td", {}, c.proxy || el("span", { class: "muted" }, "–")),
+    DEVUI.has.kind ? el("td", { class: "kc" }, c.kind === "server" ? "Server" : el("span", { class: "muted" }, "Network")) : null,
+    el("td", { class: DEVUI.has.kind ? "kc" : "" }, c.proxy || el("span", { class: "muted" }, "–")),
     el("td", { class: "cl", title: c.model || "" }, c.model || el("span", { class: "muted" }, "–")),
     el("td", { class: "cl", title: c.os || "" }, c.os || el("span", { class: "muted" }, "–")),
     el("td", {}, c.problems ? el("span", { class: "pcount", style: "background:" + DEV_YEL }, c.problems) : el("span", { class: "muted" }, "–"),
       top ? el("span", { class: "ptxt", title: top.name }, top.name) : null),
     el("td", {}, c.if_total ? [c.if_total + "", c.if_down ? el("span", { style: "color:var(--bad)" }, " (" + c.if_down + " down)") : null] : el("span", { class: "muted" }, "–")),
     el("td", {}, b ? [el("span", { class: "ifn" }, b.name), el("span", { class: "pbar" }, el("i", { style: `width:${clamp(b.pct || 0, 0, 100)}%;background:${colorFor(b.pct)}` })),
-      el("span", { class: "pv" }, fmtPct(b.pct) + " · ↓" + fmtBps(b.in_bps).replace(" ", "") + " ↑" + fmtBps(b.out_bps).replace(" ", ""))] : el("span", { class: "muted" }, "–"))));
-  if (open) rows.push(el("tr", { class: "det" }, el("td", { colspan: String(DCOLS.length) },
+      el("span", { class: "pv" }, fmtPct(b.pct) + " · ↓" + fmtBps(b.in_bps).replace(" ", "") + " ↑" + fmtBps(b.out_bps).replace(" ", ""))] : el("span", { class: "muted" }, "–")),
+    ["cpu", "mem", "disk"].filter(k => DEVUI.has[k]).map(k => el("td", { class: "mc" }, metPct(k)(c) == null ? el("span", { class: "muted" }, "–") : [el("span", { class: "pbar" }, el("i", { style: `width:${clamp(metPct(k)(c), 0, 100)}%;background:${colorFor(metPct(k)(c))}` })),
+      el("span", { class: "pv", title: k === "disk" && c.metrics.disk_name ? "Filesystem " + c.metrics.disk_name : "" }, fmtPct(metPct(k)(c)) + (k === "disk" && c.metrics.disk_name ? " · " + c.metrics.disk_name : ""))]))));
+  if (open) rows.push(el("tr", { class: "det" }, el("td", { colspan: String(devCols().length) },
     c.top.length ? c.top.map(p => probEl(p)) : el("div", { class: "muted" }, "No active problems."),
+    c.metrics ? el("div", { class: "dif" }, metricLines(c.metrics)) : null,
     c.ifaces.length ? el("div", { class: "dif" }, c.ifaces.map(ifLine), el("div", { class: "hint" }, "Busiest " + c.ifaces.length + " of " + c.if_total + " interfaces" + (canEdit ? " (change the count in Edit › This tab)." : "."))) : el("div", { class: "muted" }, "No interface data."))));
   return rows;
 }
 function devTable(groups) {
-  const head = el("tr", {}, ...DCOLS.map(c => el("th", { title: "Sort by " + c.t.toLowerCase(), onclick: () => {
+  const head = el("tr", {}, ...devCols().map(c => el("th", { title: "Sort by " + c.t.toLowerCase(), onclick: () => {
     if (DEVUI.key === c.k) DEVUI.dir = -DEVUI.dir; else { DEVUI.key = c.k; DEVUI.dir = c.desc ? -1 : 1; }
     resetPages(); saveDevUI(); renderMain(); } }, c.t, DEVUI.key === c.k ? el("span", { class: "ar" }, DEVUI.dir > 0 ? "▲" : "▼") : null)));
   const rows = [];
   for (const g of groups) {
-    if (g.id) rows.push(gHead(g, DCOLS.length));
+    if (g.id) rows.push(gHead(g, devCols().length));
     if (g.id && DEVUI.closed.has(g.id)) continue;
     for (const c of g.items) rows.push(...devRows(c));
   }
@@ -2482,6 +2800,7 @@ function drawDevices(host, tab) {
   const all = (view && view.kind === "devices" && view.cards) || [];
   if (!all.length) { host.replaceChildren(el("div", { class: "empty" }, view ? "No devices yet." + (canEdit ? " Click Edit to add hosts or host groups to this tab." : "") : "Loading…")); return; }
   const q = DEVUI.q.trim().toLowerCase(), mode = devMode(tab);
+  DEVUI.has = { kind: all.some(c => c.kind === "server"), cpu: all.some(c => metPct("cpu")(c) != null), mem: all.some(c => metPct("mem")(c) != null), disk: all.some(c => metPct("disk")(c) != null) };      // which of the extra columns the list gets
   const issue = c => c.status !== "up" || c.problems > 0 || c.if_down > 0;
   const list = all.filter(c => (!DEVUI.only || issue(c)) && (!q || [c.name, c.ip, c.proxy, c.status, ...c.top.map(p => p.name)].join("\n").toLowerCase().includes(q)));
   const ae = document.activeElement, keep = ae && ae.id === "dev-q" ? [ae.selectionStart, ae.selectionEnd] : null;     // the page re-renders on every poll: keep typing intact
@@ -2548,8 +2867,8 @@ function renderStatus() {
   $("#btn-refresh").classList.toggle("alert", bad);
   c.className = "chip " + (bad ? "bad" : "ok");
   const name = status.conn && !DEMO ? status.conn + " · " : "Zabbix ";
-  c.textContent = bad ? "⚠ " + (status.error || "error") : name + (status.version || "") + " · " + status.hosts + " hosts · " + ago(status.last_ok);
-  c.title = (bad ? (status.last_ok ? "Showing data from " + ago(status.last_ok) + ". " : "No data yet. ") : "") + "Click to manage connections (C)";
+  c.textContent = bad ? "⚠ " + (status.error || "error") : name + (status.version || "") + " · " + status.hosts + " hosts · " + ago(status.last_ok) + (status.warn ? " ⚠" : "");
+  c.title = (bad ? (status.last_ok ? "Showing data from " + ago(status.last_ok) + ". " : "No data yet. ") : "") + (!bad && status.warn ? status.warn + ". " : "") + "Click to manage connections (C)";
 }
 function renderHeader() {
   $("#tabs").replaceChildren(...L.tabs.map(t => el("button", { class: "tab" + (t.id === tabId ? " on" : ""), onclick: () => selectTab(t.id, true) }, t.name)));
@@ -3111,7 +3430,7 @@ const pitem = (id, name, sub, inUse) => el("button", { class: "pitem" + (CONN.se
   inUse ? el("span", { class: "use" }, "● in use") : null, el("b", {}, name), el("small", {}, sub));
 function renderConn() {
   const d = CONN.data;
-  const list = el("div", { class: "plist" }, pitem("demo", "Demo data", "Simulated Cisco network", d.active === "demo"),
+  const list = el("div", { class: "plist" }, pitem("demo", "Demo data", "Simulated Cisco network and servers", d.active === "demo"),
     ...d.profiles.map(p => pitem(p.id, p.name, p.url, d.active === p.id)),
     btn("+ New connection", () => pickConn(NEW_ID), CONN.sel === NEW_ID ? "primary" : ""));
   $("#conn").replaceChildren(dlgShell(el("div", { class: "dlg-b" }, list, el("div", { class: "pform" }, CONN.sel === "demo" ? demoPane() : formPane()))));
@@ -3121,7 +3440,7 @@ const msgBox = () => CONN.msg ? el("div", { class: "box infob" }, CONN.msg) : nu
 function demoPane() {
   const using = CONN.data.active === "demo";
   return el("div", {}, msgBox(), el("h3", {}, "Demo data"),
-    el("p", { class: "muted" }, "A simulated Cisco network - 8 core / WAN devices with 10 links, plus 120 access switches on the “All devices” tab to try paging - so you can look around without a Zabbix server."),
+    el("p", { class: "muted" }, "A simulated Cisco network - 8 core / WAN devices with 10 links, six servers with CPU, memory and disk bars, plus 120 access switches on the “All devices” tab to try paging - so you can look around without a Zabbix server."),
     el("div", { class: "acts" }, using ? el("span", { class: "chip ok" }, "Currently in use") : btn("Use demo data", () => activateConn("demo"), "primary"),
       btn("Reset sample layout", resetDemo)), el("div", { id: "conn-result" }));
 }
@@ -3177,7 +3496,7 @@ function setResult(r) {
   if (r.saved) { out.replaceChildren(el("div", { class: "box okb" }, "Saved.")); return; }
   if (r.ok) {
     const kids = [el("b", {}, "✓ Connected to Zabbix " + r.version),
-      el("div", {}, r.hosts + " monitored host" + (r.hosts === 1 ? "" : "s") + " · " + (r.proxies == null ? "proxies: n/a" : r.proxies + (r.proxies === 1 ? " proxy" : " proxies")) + " · " + r.interface_items + " interface items found")];
+      el("div", {}, r.hosts + " monitored host" + (r.hosts === 1 ? "" : "s") + " · " + (r.proxies == null ? "proxies: n/a" : r.proxies + (r.proxies === 1 ? " proxy" : " proxies")) + " · " + r.interface_items + " interface items found" + (r.server_items != null ? " · " + r.server_items + " server items (CPU, memory, disks)" : ""))];
     if (r.sample && r.sample.length) kids.push(el("div", { class: "samples" }, ...r.sample.map(h => el("span", {}, el("i", { class: "dot", style: "width:8px;height:8px;margin-right:6px;background:" + (h.status === "up" ? "var(--ok)" : h.status === "down" ? "var(--bad)" : "var(--muted)") }), h.name)), r.hosts > r.sample.length ? el("span", { class: "muted" }, "+" + (r.hosts - r.sample.length) + " more") : null));
     out.replaceChildren(el("div", { class: "box okb" }, kids));
     if (!r.interface_items) out.append(el("div", { class: "box warnb" }, "No interface items matched (net.if.in[ / net.if.out[ …). Hosts will show up, but links will have no traffic data. Open “Advanced” above and set the item key prefixes your templates use."));
@@ -4423,6 +4742,8 @@ def _print_probe(r):
     n, p = r["hosts"], r["proxies"]
     print(f"Connected to Zabbix {r['version']}: {n} monitored host{'' if n == 1 else 's'}, "
           + ("proxies: n/a" if p is None else f"{p} prox{'y' if p == 1 else 'ies'}") + f", {r['interface_items']} interface items found.")
+    if r.get("server_items") is not None:
+        print(f"Server items (CPU, memory, disks from the Zabbix agent or SNMP templates): {r['server_items']}.")
     if not r["interface_items"]:
         print("Note: no interface items matched (net.if.in[ / net.if.out[ ...). Hosts will show up, but links will have no traffic data - "
               "see 'Advanced' in the Connections window of the page to set the item keys of your templates.")
@@ -4521,7 +4842,7 @@ def main():
         return connection_cli(sys.argv[2:])
     ap = argparse.ArgumentParser(description="TrunkVista - weathermap dashboard for Zabbix",
                                  epilog="Accounts:  trunkvista.py user --help      Zabbix connections:  trunkvista.py connection --help")
-    ap.add_argument("--demo", action="store_true", help="simulated Cisco devices, no Zabbix needed")
+    ap.add_argument("--demo", action="store_true", help="simulated Cisco devices and servers, no Zabbix needed")
     ap.add_argument("--init", action="store_true", help="write a config.json template and exit")
     ap.add_argument("--host", default="127.0.0.1", help="bind address (use 0.0.0.0 for a LAN wall display)")
     ap.add_argument("--port", type=int, default=DEFAULT_PORT)
