@@ -1,7 +1,8 @@
 # TrunkVista logo
 
-The mark is an open ring of link segments in the app's own utilisation colours (low → high: green, lime, amber, orange) around a blue node: the trunk
-links of a network seen through a lens, and a usage gauge. (It was drawn for the program's first name and is unchanged.)
+The mark is a **trunk** that forks at a router node into four **links**, each ending in a node: the backbone of a network opening out into a view of it.
+The trunk and its node are the app's accent blue, the links use the app's own utilisation colours (low → high: green, lime, amber, orange). The thick
+trunk and the thin links echo the wordmark: *Trunk* in bold, *Vista* in light. (It replaces the ring of link segments of the first name, ChannelView.)
 
 ## Files
 
@@ -14,9 +15,9 @@ links of a network seen through a lens, and a usage gauge. (It was drawn for the
 | `trunkvista-icon.svg`, `trunkvista-icon-512/1024.png`, `icon-192.png`, `apple-touch-icon.png` | app icon on a dark tile |
 | `favicon.svg`, `favicon.ico`, `favicon-16/32/48.png` | browser tab icon (a slightly heavier drawing that holds up at 16 px) |
 | `social-preview.png` | 1280 × 640, for GitHub: repository → Settings → Social preview |
-| `source/build_logo.py` | regenerates every SVG: `python3 build_logo.py OUTDIR` (needs `uharfbuzz`, `fonttools` and the Inter font; the font folder is set at the top of the script) |
+| `source/` | `tv_mark.py` draws the mark, `build_logo.py OUTDIR` writes every SVG (needs `uharfbuzz`, `fonttools` and the Inter font; the font folder is set at the top of the script), `render_png.py OUTDIR` makes the PNGs and the `.ico` (needs `playwright` and `pillow`). Then `python3 tools/embed_logo.py` puts the mark and the tab icons into `trunkvista.py` |
 
-In the program, the page header embeds `trunkvista-mark.svg` inline (its centre node takes the page's `--accent` colour) and the tab icon is `favicon.svg` plus `favicon-32.png`, both embedded in `trunkvista.py` as `data:` URIs because the page's security policy only allows images from `data:`.
+In the program, the page header and the sign-in page embed the heavier drawing of the mark inline (its trunk and node take the page's `--accent` colour) and the tab icon is `favicon.svg` plus `favicon-32.png`, both embedded in `trunkvista.py` as `data:` URIs because the page's security policy only allows images from `data:`. `tools/embed_logo.py` does the embedding.
 
 The wordmark is converted to outlines, so the SVGs look the same on every machine; no font is needed.
 
@@ -38,6 +39,6 @@ The wordmark is converted to outlines, so the SVGs look the same on every machin
 
 ## Rules
 
-- **Clear space:** at least the thickness of the ring (about a fifth of the mark's height) on every side.
+- **Clear space:** at least the width of the trunk (about a seventh of the mark's height) on every side.
 - **Smallest size:** the mark 16 px (use `favicon.svg`), the full logo 24 px high.
-- Don't recolour the segments, change their order, close the opening of the C, or put the colour mark on a busy or mid-grey background; use a mono version there.
+- Don't recolour the links, change their order, add or remove a link, or put the colour mark on a busy or mid-grey background; use a mono version there.

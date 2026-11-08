@@ -114,11 +114,12 @@ Each release gets its own segment below, newest first - the same text GitHub sho
 
 *2026-11-08*
 
-**New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. The mark is unchanged; the wordmark reads *Trunk* + *Vista*. Everything that carried the name changed with it:
+**New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. It has a new logo, and everything that carried the name changed with it:
 
 - **Package and files:** `trunkvista` (`trunkvista_<version>_all.deb`, `trunkvista-latest.deb`), `trunkvista.py`, `trunkvista_demo.html`; commands `trunkvista-user`, `trunkvista-update`, `trunkvista-cert`; service `trunkvista` and `trunkvista-update.timer`; folders `/var/lib/trunkvista`, `/etc/trunkvista`, `/etc/default/trunkvista`, `~/.trunkvista`; settings `TRUNKVISTA_*`; the session cookie is `tv_session`.
 - **The Debian package of the new name replaces the old one** (`Conflicts` / `Replaces: channelview`). When it is installed over a ChannelView installation, it moves the data (layouts, the saved Zabbix connections, accounts, `custom.css`), the HTTPS certificate and key, the update signing key and the settings in `/etc/default` (renamed to `TRUNKVISTA_*`) to the new places, keeps the nightly update check on if it was on, removes the old service user and says what it did. Everybody signs in again once (the cookie has a new name). Afterwards `sudo apt purge channelview` removes the leftover package record; it does not touch the moved data.
 - **Without the package:** `CHANNELVIEW_*` environment variables are still read (`TRUNKVISTA_*` wins), `~/.channelview` is renamed to `~/.trunkvista` the first time (when the new folder does not exist and no `--data-dir` is given), and the browser's remembered choices (colour theme, view options, the standalone demo's layouts) are moved to the new keys.
+- **A new logo** for the new name: a blue *trunk* that forks at a router node into four *links* in the usage colours, each ending in a node. It is in the page header, on the sign-in page (both follow the accent colour) and as the tab icon; `docs/logo` holds the logo set (SVG and PNG for dark and light backgrounds, one-colour versions, app icon, favicon, GitHub social preview) with the scripts that draw it, and `tools/embed_logo.py` puts it into the program. The screenshots in the README show it.
 
 **Upgrading from ChannelView (1.2.1 or older):** `channelview-update` cannot cross the rename (it looks for packages called `channelview`), so install the new package **once by hand**: download `trunkvista-latest.deb` from the latest release and run `sudo apt install ./trunkvista-latest.deb`. From then on `sudo trunkvista-update` works as before. Not moved by the installation: a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), scripts or monitoring that call the old command names, and a reverse proxy or firewall rule that names the old service. Past releases keep their old name in this file.
 
@@ -404,7 +405,7 @@ http://dashboard:8088/#kiosk=1&play=wall&theme=light      # theme=dark | light |
 
 The complete list is the first two rules of the page's CSS (`:root` for dark, `:root:where([data-theme=light])` for light): the two palettes define the same names, and a test keeps them that way.
 
-**The logo.** The header shows the mark (a C of link segments in the usage colours around a blue node) and the browser tab uses the same drawing as its icon. The centre node follows `--accent`, so a changed accent colour changes it too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
+**The logo.** The header shows the mark (a blue trunk that forks into four links in the usage colours, each ending in a node) and the browser tab uses the same drawing as its icon. The trunk and its node follow `--accent`, so a changed accent colour changes them too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
 
 **Bigger changes, for everybody – a release.** The whole page (HTML, CSS, JavaScript) is the `PAGE` text in `trunkvista.py`.
 

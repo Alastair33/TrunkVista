@@ -97,7 +97,7 @@ class VersionAndDemo(unittest.TestCase):
             self.assertIn(f"TrunkVista {app_version()} running", s.text())
 
     def test_logo_in_header_and_tab_icon(self):
-        """The ring logo is inline in the header and the tab icons are data: URIs (the page policy only allows img-src data:)."""
+        """The trunk-and-links logo is inline in the header and the tab icons are data: URIs (the page policy only allows img-src data:)."""
         import base64
         import urllib.parse
         import xml.etree.ElementTree as ET
@@ -108,8 +108,9 @@ class VersionAndDemo(unittest.TestCase):
         def tags(root, name):   # inline SVG in HTML has no xmlns, the data: URI one has
             return [e for e in root.iter() if e.tag.split("}")[-1] == name]
         header = ET.fromstring(m.group(1))
-        self.assertEqual(len(tags(header, "path")), 4, "four link segments")
-        self.assertEqual([e.get("class") for e in header.iter() if e.get("class")], ["node"], "centre node takes the page accent via CSS")
+        self.assertEqual(len(tags(header, "path")), 5, "four links and the trunk")
+        self.assertEqual(len(tags(header, "circle")), 5, "a node at the end of each link and the router node on the trunk")
+        self.assertEqual([e.get("class") for e in header.iter() if e.get("class")], ["trunk", "node"], "the trunk and its node take the page accent via CSS")
         icons = re.findall(r'<link rel="icon" type="([^"]+)"[^>]*href="(data:[^"]+)"', html)
         self.assertEqual({t for t, _ in icons}, {"image/png", "image/svg+xml"})
         for kind, uri in icons:
@@ -121,7 +122,7 @@ class VersionAndDemo(unittest.TestCase):
                 self.assertEqual(len(rects), 1, "the tile")
                 rect = rects[0]
                 self.assertEqual((rect.get("width"), rect.get("height")), ("512", "512"), "tile must keep its size or it disappears")
-                self.assertEqual(len(tags(svg, "path")), 4)
+                self.assertEqual(len(tags(svg, "path")), 5, "four links and the trunk")
         self.assertNotIn("&#9670;", html, "old diamond glyph is gone")
         self.assertNotIn('href="data:,"', html)
 
