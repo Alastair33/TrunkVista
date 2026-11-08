@@ -80,7 +80,7 @@ create_admin() {
     answer trunkvista/admin_password; pw="$ANSWER"
     db_reset trunkvista/admin_password || true            # the password is not kept in the debconf database
     db_reset trunkvista/admin_password_again || true
-    [ -n "$name" ] || name=admin
+    [ -n "$name" ] || name="admin"
     if [ -n "$pw" ]; then
         if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin >/dev/null 2>"$DATA/.user-add.err"; then
             note "The administrator account '$name' was created with the password you gave."
@@ -90,7 +90,7 @@ create_admin() {
         echo "trunkvista: could not use that account: $(cat "$DATA/.user-add.err" 2>/dev/null) - making a random password instead." >&2
         rm -f "$DATA/.user-add.err"
     fi
-    case "$name" in *[!A-Za-z0-9._@-]*|"") name=admin ;; esac
+    case "$name" in *[!A-Za-z0-9._@-]*|"") name="admin" ;; esac
     pw="$(tr -dc 'A-HJ-NP-Za-km-z2-9' </dev/urandom | head -c 20)"
     if printf '%s\n' "$pw" | "$PROG" user --data-dir "$DATA" add "$name" --role admin --password-stdin --must-change >/dev/null; then
         ( umask 077; printf 'username: %s\npassword: %s\n' "$name" "$pw" > "$DATA/initial-admin-password" )
@@ -147,15 +147,17 @@ fi
 if [ "$1" = "configure" ] && [ -n "$created_note" ]; then
     printf '\ntrunkvista: %s\n' "$created_note"
 fi
-if [ "$1" = "configure" ] && [ -z "$2" ]; then
+if [ "$1" = "configure" ] && [ -z "$2" ] && [ -z "${TRUNKVISTA_INSTALLER:-}" ]; then      # (install.sh sets it: it starts trunkvista-setup itself)
     cat <<MSG
 
-trunkvista is installed and running on http://127.0.0.1:8088/ (this machine only). Everybody signs in.
-  * Open that page, sign in as the administrator, click the status chip at the top and add your Zabbix server (URL and API token).
+trunkvista is installed and running (this machine only: http://127.0.0.1:8088/). Everybody signs in.
+  Finish the setup - your Zabbix server, and whether other PCs may open the dashboard (HTTPS is switched on for that):
+
+      sudo trunkvista-setup
+
+  (or open the page, sign in as the administrator and add Zabbix there.)
   * Accounts:  the account menu in the page (administrators), or  sudo trunkvista-user --help
     Wall displays: an account with --idle never (a viewer that is never signed out).
-  * Other PCs / wall displays: set TRUNKVISTA_HOST=0.0.0.0 in /etc/default/trunkvista, then: sudo systemctl restart trunkvista
-    and switch on HTTPS first (passwords!):  sudo trunkvista-cert   and follow what it prints
   * Updates from GitHub:  sudo trunkvista-update      Logs:  journalctl -u trunkvista
 MSG
 fi

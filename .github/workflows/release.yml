@@ -4,7 +4,7 @@ name: Release
 # Builds the .deb, installs it for real on the runner as a test, and publishes it on the GitHub Releases page together with
 # SHA256SUMS (and SHA256SUMS.sig when you have set up signing - see README.md). trunkvista-update on the servers installs from there.
 # People who download TrunkVista are sent to the LATEST release (README.md, "Download"), never to the branch: besides the versioned
-# .deb every release carries trunkvista-latest.deb, trunkvista.py and trunkvista_demo.html under fixed names, so that
+# .deb every release carries trunkvista-latest.deb, trunkvista.py, trunkvista_demo.html and install.sh under fixed names, so that
 #   https://github.com/<owner>/<repository>/releases/latest/download/<name>
 # always serves the newest full release (GitHub leaves pre-releases out of "latest").
 on:
@@ -64,8 +64,13 @@ jobs:
           [ "$#" -eq 1 ] && [ -f "$1" ] || { echo "::error::expected exactly one dist/trunkvista_*_all.deb, found: $*"; exit 1; }
           cp -- "$1" dist/trunkvista-latest.deb
           cp trunkvista.py trunkvista_demo.html dist/
+          # the one-line installer: the template of the repository with this repository's name in it
+          sed "s#@REPO@#$GITHUB_REPOSITORY#g" packaging/install.sh > dist/install.sh
+          chmod 0755 dist/install.sh
+          sh -n dist/install.sh
+          ! grep -q '@REPO@' dist/install.sh
           cd dist
-          sha256sum -- *.deb trunkvista.py trunkvista_demo.html > SHA256SUMS
+          sha256sum -- *.deb trunkvista.py trunkvista_demo.html install.sh > SHA256SUMS
           cat SHA256SUMS
 
       - name: Sign SHA256SUMS (only if the signing secrets exist)
@@ -94,9 +99,9 @@ jobs:
           {
             echo
             echo "---"
-            echo "Install:  \`sudo apt install ./trunkvista-latest.deb\`   -   update later with:  \`sudo trunkvista-update\`"
+            echo "Install:  \`curl -fsSL https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/install.sh | sudo sh\`   -   or by hand: \`sudo apt install ./trunkvista-latest.deb\` and then \`sudo trunkvista-setup\`   -   update later with:  \`sudo trunkvista-update\`"
             echo
-            echo "Files: \`trunkvista-latest.deb\` (the same package as \`trunkvista_${VERSION}_all.deb\`), \`trunkvista.py\` (the single program file, for systems without apt), \`trunkvista_demo.html\`, \`SHA256SUMS\`."
+            echo "Files: \`install.sh\` (the one-line installer), \`trunkvista-latest.deb\` (the same package as \`trunkvista_${VERSION}_all.deb\`), \`trunkvista.py\` (the single program file, for systems without apt), \`trunkvista_demo.html\`, \`SHA256SUMS\`."
             echo "Always download from the newest release: https://github.com/${GITHUB_REPOSITORY}/releases/latest - not from the branch, which can hold unreleased changes."
           } >> "$RUNNER_TEMP/notes.md"
           cat "$RUNNER_TEMP/notes.md"

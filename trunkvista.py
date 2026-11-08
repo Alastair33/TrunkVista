@@ -4394,10 +4394,133 @@ def user_cli(argv):
         sys.exit(f"trunkvista: cannot write the accounts file in {data}: {e}")
 
 
+def _norm_url(u):
+    """A Zabbix address as a comparable string: the same server whether it is written with or without /api_jsonrpc.php or a closing slash."""
+    u = (u or "").strip().rstrip("/")
+    if u.lower().endswith("/api_jsonrpc.php"):
+        u = u[:-len("/api_jsonrpc.php")]
+    return u.rstrip("/").lower()
+
+
+def _read_secret(args, prompt):
+    """The API token / password of `connection add`: the first line of standard input or of a file, or typed on the terminal (hidden).
+    Never from the command line, where every user of the machine could read it."""
+    if args.secret_stdin:
+        return sys.stdin.readline().strip()
+    if args.secret_file:
+        try:
+            with open(args.secret_file, encoding="utf-8") as f:
+                return f.readline().strip()
+        except OSError as e:
+            sys.exit(f"trunkvista: cannot read {args.secret_file}: {e.strerror or e}")
+    if not sys.stdin.isatty():
+        sys.exit("trunkvista: give the secret with --secret-stdin or --secret-file; it is never taken from the command line, where other users could read it.")
+    import getpass
+    return getpass.getpass(prompt).strip()
+
+
+def _print_probe(r):
+    n, p = r["hosts"], r["proxies"]
+    print(f"Connected to Zabbix {r['version']}: {n} monitored host{'' if n == 1 else 's'}, "
+          + ("proxies: n/a" if p is None else f"{p} prox{'y' if p == 1 else 'ies'}") + f", {r['interface_items']} interface items found.")
+    if not r["interface_items"]:
+        print("Note: no interface items matched (net.if.in[ / net.if.out[ ...). Hosts will show up, but links will have no traffic data - "
+              "see 'Advanced' in the Connections window of the page to set the item keys of your templates.")
+
+
+def connection_cli(argv):
+    """trunkvista.py connection [--data-dir DIR] list | test | add   -  the Zabbix connections, from the terminal."""
+    ap = argparse.ArgumentParser(prog="trunkvista.py connection", description="The Zabbix connections - the same ones as the Connections window in the page. "
+                                 "A running server reads them when it starts, so restart it after a change (Debian: sudo systemctl restart trunkvista).")
+    ap.add_argument("--data-dir", default="", help="default: $TRUNKVISTA_DATA, else ~/.trunkvista")
+    sub = ap.add_subparsers(dest="action", metavar="ACTION", required=True)
+    sub.add_parser("list", help="show the saved connections")
+    p = sub.add_parser("test", help="try a saved connection (default: the one in use)")
+    p.add_argument("name", nargs="?", help="name or id of the connection")
+    p = sub.add_parser("add", help="test a Zabbix server and save it as the connection in use (the same address again updates it)")
+    p.add_argument("url", help="e.g. https://zabbix.example.com  (/api_jsonrpc.php is added for you)")
+    p.add_argument("--name", default="", help="how it is called in the page (default: the host name)")
+    p.add_argument("--username", default="", help="log in with this user and a password instead of an API token")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--secret-stdin", action="store_true", help="read the API token (or password) from the first line of standard input")
+    g.add_argument("--secret-file", metavar="FILE", help="read the API token (or password) from the first line of this file")
+    p.add_argument("--no-verify-tls", action="store_true", help="accept a self-signed HTTPS certificate of the Zabbix server")
+    p.add_argument("--no-test", action="store_true", help="save it without trying it first")
+    p.add_argument("--no-use", action="store_true", help="save it, but leave the connection in use as it is")
+    p.add_argument("--quiet", action="store_true", help="do not remind you to restart the dashboard (trunkvista-setup does that itself)")
+    args = ap.parse_args(argv)
+    secret = ""
+    if args.action == "add":      # (before dropping the privileges: the file may be readable by root only)
+        secret = _read_secret(args, f"Password of {args.username}: " if args.username else "API token (Zabbix: Users > API tokens; typing is hidden): ")
+        if not secret and not args.no_test:
+            sys.exit("trunkvista: no API token given.")
+    data = Path(args.data_dir or env("DATA") or default_data_dir()).expanduser()
+    data.mkdir(parents=True, exist_ok=True)
+    _drop_to_owner(data)
+    try:
+        cfg = load_config(data / "config.json")
+    except (ValueError, OSError) as e:
+        sys.exit(f"trunkvista: cannot read {data / 'config.json'}: {e}")
+    conns = Connections(data / "connections.json", cfg)
+    try:
+        if args.action == "list":
+            rows = conns.all()
+            if not rows:
+                print("No connections yet.  Add one:  trunkvista.py connection add https://zabbix.example.com")
+            for c in rows:
+                mark = "in use" if conns.active == c["id"] or (c["id"] == "default" and not conns.get(conns.active) and conns.active != "demo") else ""
+                print(f"{c['id']:<12} {c['name']:<28} {c['url']:<44} {'token' if c['auth'] == 'token' else 'user ' + c.get('username', ''):<14} {mark}")
+        elif args.action == "test":
+            rows = conns.all()
+            want = (args.name or "").strip().lower()
+            c = next((x for x in rows if want in (x["id"].lower(), x["name"].lower())), None) if want else \
+                (conns.get(conns.active) or (rows[0] if rows else None))
+            if c is None:
+                sys.exit("trunkvista: " + (f"no connection called '{args.name}'." if want else "no connection saved yet.  Add one:  trunkvista.py connection add URL"))
+            r = test_connection(cfg, c)
+            if not r["ok"]:
+                sys.exit(f"trunkvista: {c['name']}: {r['error']}" + (f"\n  {r['hint']}" if r.get("hint") else ""))
+            print(f"{c['name']} ({c['url']})")
+            _print_probe(r)
+        else:
+            auth = "password" if args.username else "token"
+            d = {"url": args.url, "name": args.name, "auth": auth, "verify_tls": not args.no_verify_tls,
+                 "token": secret if auth == "token" else "", "username": args.username, "password": secret if auth == "password" else ""}
+            same = next((x for x in conns.profiles if _norm_url(x["url"]) == _norm_url(args.url)), None)
+            if same:
+                d["id"] = same["id"]
+                d["name"] = args.name or same["name"]          # (a name you chose in the page stays)
+                d["match"] = same.get("match") or {}            # ... and so do the item keys you set there
+            prof = conns.clean(d, same)
+            if not args.no_test:
+                r = test_connection(cfg, prof)
+                if not r["ok"] and r.get("kind") == "tls" and prof.get("verify_tls", True) and sys.stdin.isatty():
+                    print(f"trunkvista: {r['error']}\n  The certificate of the Zabbix server is not trusted by this computer (usually: it is self-signed).")
+                    if input("  Accept it anyway and do not verify it? [y/N] ").strip().lower() in ("y", "yes"):
+                        d["verify_tls"] = False
+                        prof = conns.clean(d, same)
+                        r = test_connection(cfg, prof)
+                if not r["ok"]:
+                    sys.exit(f"trunkvista: not saved - {r['error']}" + (f"\n  {r['hint']}" if r.get("hint") else ""))
+                _print_probe(r)
+            saved = conns.upsert(d)
+            if not args.no_use:
+                conns.set_active(saved["id"])
+            print(f"{'Updated' if same else 'Saved'} '{saved['name']}'" + ("." if args.no_use else " as the connection in use.")
+                  + ("" if args.quiet else "  A running dashboard reads it at its next start (Debian: sudo systemctl restart trunkvista)."))
+    except ValueError as e:
+        sys.exit(f"trunkvista: {e}")
+    except OSError as e:
+        sys.exit(f"trunkvista: cannot write the connections file in {data}: {e}")
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == "user":
         return user_cli(sys.argv[2:])
-    ap = argparse.ArgumentParser(description="TrunkVista - weathermap dashboard for Zabbix", epilog="Accounts:  trunkvista.py user --help")
+    if len(sys.argv) > 1 and sys.argv[1] == "connection":
+        return connection_cli(sys.argv[2:])
+    ap = argparse.ArgumentParser(description="TrunkVista - weathermap dashboard for Zabbix",
+                                 epilog="Accounts:  trunkvista.py user --help      Zabbix connections:  trunkvista.py connection --help")
     ap.add_argument("--demo", action="store_true", help="simulated Cisco devices, no Zabbix needed")
     ap.add_argument("--init", action="store_true", help="write a config.json template and exit")
     ap.add_argument("--host", default="127.0.0.1", help="bind address (use 0.0.0.0 for a LAN wall display)")

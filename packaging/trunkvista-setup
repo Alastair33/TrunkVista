@@ -1,0 +1,274 @@
+#!/bin/sh
+# trunkvista-setup - finish the installation in one go: the Zabbix connection, who may open the dashboard (this computer, or other PCs over
+# HTTPS), and the nightly update check. Run it with sudo, as often as you like - it changes only what you answer.
+#
+#   sudo trunkvista-setup                       asks three short questions; Enter takes the answer in [brackets]
+#   sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-file /root/zabbix.token --network --yes     no questions
+#
+# Zabbix:    --zabbix-url URL            the Zabbix server (/api_jsonrpc.php is added). It is tried first and saved only if it works.
+#            --token-file FILE | --token-stdin    the API token (Zabbix: Users > API tokens), first line of the file / of standard input
+#            --zabbix-user NAME          log in with this user and a password instead of a token (the file / stdin then holds the password)
+#            --zabbix-name TEXT          how the connection is called in the page (default: the host name)
+#            --no-verify-tls             Zabbix has a self-signed HTTPS certificate
+# Access:    --network                   other PCs may open the dashboard: listens on all interfaces and switches on HTTPS
+#            --local                     this computer only (the default after an installation)
+#            --no-https                  with --network: no HTTPS (only behind a reverse proxy that does it - see the README)
+# Updates:   --auto-update | --no-auto-update    check GitHub every night and install new releases / stop doing that
+# Other:     --yes, -y                   never ask; do what the options say and leave everything else as it is
+#            --no-restart                do not restart the service afterwards
+set -eu
+
+DEFAULTS="${TRUNKVISTA_DEFAULTS:-/etc/default/trunkvista}"
+PROG="${TRUNKVISTA_PROG:-/usr/lib/trunkvista/trunkvista.py}"
+DATA="${TRUNKVISTA_DATA:-/var/lib/trunkvista}"
+CERT_CMD="${TRUNKVISTA_CERT_CMD:-trunkvista-cert}"
+TLS_DIR="${TRUNKVISTA_TLS_DIR:-/etc/trunkvista/tls}"
+
+url=""; zuser=""; zname=""; token_file=""; token_stdin=no; verify=yes
+want_access=""; https=yes; autoupd=""; assume_yes=no; restart=yes
+changed=no
+
+die() { printf 'trunkvista-setup: %s\n' "$*" >&2; exit 1; }
+say() { printf '%s\n' "$*"; }
+need() { { [ "$1" -ge 2 ] && case "$3" in -*) false ;; esac; } || die "$2 needs a value (see --help)"; }
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --zabbix-url) need $# "$1" "${2:-}"; url="$2"; shift 2 ;;
+        --zabbix-user) need $# "$1" "${2:-}"; zuser="$2"; shift 2 ;;
+        --zabbix-name) need $# "$1" "${2:-}"; zname="$2"; shift 2 ;;
+        --token-file) need $# "$1" "${2:-}"; token_file="$2"; shift 2 ;;
+        --token-stdin) token_stdin=yes; shift ;;
+        --no-verify-tls) verify=no; shift ;;
+        --network) want_access=network; shift ;;
+        --local) want_access=local; shift ;;
+        --no-https) https=no; shift ;;
+        --auto-update) autoupd=yes; shift ;;
+        --no-auto-update) autoupd=no; shift ;;
+        --yes|-y) assume_yes=yes; shift ;;
+        --no-restart) restart=no; shift ;;
+        -h|--help) sed -n '2,19p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        *) die "unknown option $1 (see --help)" ;;
+    esac
+done
+
+[ "$(id -u)" = 0 ] || [ -n "${TRUNKVISTA_DEFAULTS:-}" ] || die "run as root:  sudo trunkvista-setup"      # (with the settings file named in the environment: tests)
+[ -f "$PROG" ] || die "$PROG not found - is the trunkvista package installed?"
+[ -d "$DATA" ] || die "the data folder $DATA does not exist - is the trunkvista package installed?"
+command -v python3 >/dev/null 2>&1 || die "python3 not found"
+{ [ -z "$token_file" ] || [ "$token_stdin" = no ]; } || die "--token-file and --token-stdin together: choose one"
+{ [ -z "$zuser" ] && [ -z "$token_file" ] && [ "$token_stdin" = no ]; } || [ -n "$url" ] || die "--token-file / --token-stdin / --zabbix-user belong to --zabbix-url"
+{ [ "$https" = yes ] || [ "$want_access" = network ]; } || die "--no-https only makes sense with --network"
+
+# questions are asked only at a terminal and without --yes / --token-stdin (standard input then carries the secret)
+interactive() { [ "$assume_yes" = no ] && [ "$token_stdin" = no ] && [ -t 0 ] && [ -t 1 ]; }
+have_systemd() { [ -d /run/systemd/system ] || [ -n "${TRUNKVISTA_FORCE_SYSTEMD:-}" ]; }
+prog() { python3 "$PROG" "$@"; }
+
+ask() {       # ask "Question" "default"  ->  $ANSWER
+    if [ -n "$2" ]; then printf '%s [%s] ' "$1" "$2"; else printf '%s ' "$1"; fi
+    read -r ANSWER || { echo; die "no answer (the input was closed)"; }
+    [ -n "$ANSWER" ] || ANSWER="$2"
+}
+yesno() {     # yesno "Question" y|n  ->  status 0 for yes
+    d="$2"; if [ "$d" = y ]; then hint="Y/n"; else hint="y/N"; fi
+    while :; do
+        printf '%s [%s] ' "$1" "$hint"
+        read -r a || { echo; die "no answer (the input was closed)"; }
+        case "${a:-$d}" in y|Y|yes|YES|j|J) return 0 ;; n|N|no|NO) return 1 ;; esac
+        echo "Please answer y or n."
+    done
+}
+
+# ---- /etc/default/trunkvista
+get_default() {       # the value of KEY ("" when it is not set, or only in a comment)
+    [ -r "$DEFAULTS" ] || return 0
+    sed -n "s/^$1=//p" "$DEFAULTS" | tail -n 1 | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
+}
+set_default() {       # set_default KEY VALUE: changes KEY=..., else switches a commented #KEY=... on, else appends it
+    [ -w "$DEFAULTS" ] || [ ! -e "$DEFAULTS" ] || die "cannot write $DEFAULTS"
+    [ "$(get_default "$1")" != "$2" ] || return 0
+    tmp="$DEFAULTS.new.$$"
+    [ -e "$DEFAULTS" ] || : > "$DEFAULTS"
+    awk -v k="$1" -v v="$2" '
+        NR == FNR { if ($0 ~ "^" k "=") have = 1; next }
+        $0 ~ "^" k "=" { if (!done) { print k "=" v; done = 1 }; next }
+        !have && !done && $0 ~ "^#" k "=" { print k "=" v; done = 1; next }
+        { print }
+        END { if (!done) print k "=" v }
+    ' "$DEFAULTS" "$DEFAULTS" > "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$DEFAULTS"
+    changed=yes
+}
+
+# ---- 1. Zabbix
+connections() { prog connection --data-dir "$DATA" list 2>/dev/null || true; }
+add_connection() {    # add_connection URL: the program tests it and saves it only if Zabbix accepts it
+    set -- connection --data-dir "$DATA" add "$1" --quiet
+    [ -z "$zname" ] || set -- "$@" --name "$zname"
+    [ -z "$zuser" ] || set -- "$@" --username "$zuser"
+    [ "$verify" = yes ] || set -- "$@" --no-verify-tls
+    [ -z "$token_file" ] || set -- "$@" --secret-file "$token_file"
+    [ "$token_stdin" = no ] || set -- "$@" --secret-stdin
+    prog "$@"
+}
+step_zabbix() {
+    if [ -n "$url" ]; then
+        say "Zabbix: trying $url ..."
+        add_connection "$url" || die "the Zabbix connection was not saved; nothing else was changed"
+        changed=yes
+        return 0
+    fi
+    interactive || return 0
+    have="$(connections)"
+    case "$have" in
+        ""|"No connections yet."*) say "1. Zabbix. TrunkVista reads your devices from Zabbix. You need the server's address and an API token (in Zabbix: Users > API tokens > Create API token; a user that may read your hosts is enough)." ;;
+        *) say "1. Zabbix. Already saved:"; printf '%s\n' "$have" | sed 's/^/     /'
+           yesno "   Add or change a Zabbix server now?" n || return 0 ;;
+    esac
+    default_url=""
+    while :; do
+        ask "   Zabbix address, e.g. https://zabbix.example.com (empty: do it later in the page):" "$default_url"
+        [ -n "$ANSWER" ] || { say "   Skipped. The page asks for it at the first sign-in; or run this command again."; return 0; }
+        default_url="$ANSWER"
+        if add_connection "$ANSWER"; then changed=yes; return 0; fi
+        yesno "   Try again?" y || return 0
+    done
+}
+
+# ---- 2. who may open it
+ensure_https() {
+    cur_cert="$(get_default TRUNKVISTA_TLS_CERT)"
+    if [ -n "$cur_cert" ] && [ "$cur_cert" != "$TLS_DIR/server.crt" ]; then
+        say "   HTTPS: already on, with your own certificate ($cur_cert)."
+        return 0
+    fi
+    if [ ! -s "$TLS_DIR/server.crt" ] || [ ! -s "$TLS_DIR/server.key" ]; then
+        say "   HTTPS: making a certificate for this computer ($TLS_DIR) ..."
+        out="$("$CERT_CMD" 2>&1)" || { printf '%s\n' "$out" >&2; die "the certificate could not be made"; }
+    elif command -v openssl >/dev/null 2>&1; then          # one is there already (made earlier): leave it, but say if it does not name this computer
+        san="$(openssl x509 -in "$TLS_DIR/server.crt" -noout -ext subjectAltName 2>/dev/null || true)"
+        missing=""
+        for a in $(hostname -I 2>/dev/null || true); do
+            case "$a" in *:*) continue ;; esac
+            case "$san" in *"IP Address:$a"*) ;; *) missing="$missing $a" ;; esac
+        done
+        if [ -n "$missing" ]; then
+            say "   The certificate in $TLS_DIR was not made for:$missing - browsers complain when the page is opened on such an address."
+            say "   Make one that names this computer's addresses (it replaces the old one):  sudo trunkvista-cert --force"
+        fi
+    fi
+    set_default TRUNKVISTA_TLS_CERT "$TLS_DIR/server.crt"
+    set_default TRUNKVISTA_TLS_KEY "$TLS_DIR/server.key"
+}
+step_access() {
+    cur_host="$(get_default TRUNKVISTA_HOST)"
+    case "${cur_host:-127.0.0.1}" in 127.0.0.1|localhost|::1) cur=local ;; *) cur=network ;; esac
+    if [ -z "$want_access" ]; then
+        interactive || return 0
+        if [ "$cur" = network ] || [ -n "${SSH_CONNECTION:-}" ] || [ -n "${SSH_TTY:-}" ]; then pick=2; else pick=1; fi
+        say "2. Who will open the dashboard?"
+        say "     1) a browser on this computer only"
+        say "     2) browsers on other computers (the network): HTTPS is switched on, because everybody signs in with a password"
+        [ -z "${SSH_CONNECTION:-}" ] || say "     (you are logged in over SSH, so this is probably a server: 2)"
+        while :; do
+            ask "   Choose 1 or 2:" "$pick"
+            case "$ANSWER" in 1) want_access=local; break ;; 2) want_access=network; break ;; esac
+            echo "   Please type 1 or 2."
+        done
+    fi
+    if [ "$want_access" = network ]; then
+        prog user --data-dir "$DATA" list 2>/dev/null | grep -q '^No accounts' && die "no account exists yet, and the dashboard listens on the network only with accounts. Create an administrator:  sudo trunkvista-user add NAME --role admin"
+        set_default TRUNKVISTA_HOST 0.0.0.0
+        if [ "$https" = yes ]; then ensure_https; else say "   HTTPS stays off: passwords cross the network readable unless a reverse proxy in front does HTTPS."; fi
+    else
+        set_default TRUNKVISTA_HOST 127.0.0.1
+    fi
+}
+
+# ---- 3. updates
+step_updates() {
+    if ! have_systemd; then
+        [ -z "$autoupd" ] || say "   (No systemd here: the nightly update check was not changed.)"
+        return 0
+    fi
+    enabled=no
+    if systemctl is-enabled --quiet trunkvista-update.timer 2>/dev/null; then enabled=yes; fi
+    if [ -z "$autoupd" ] && [ "$enabled" = no ] && interactive; then
+        case "$(get_default TRUNKVISTA_UPDATE_REPO)" in
+            ""|OWNER/REPO) ;;
+            *) say "3. Updates. TrunkVista can look on GitHub every night and install a newer release by itself (checked against its checksums). You can always update by hand with: sudo trunkvista-update"
+               if yesno "   Install new releases automatically?" n; then autoupd=yes; fi ;;
+        esac
+    fi
+    case "$autoupd" in
+        yes) systemctl enable --now trunkvista-update.timer >/dev/null 2>&1 || die "could not switch on trunkvista-update.timer"; say "   Nightly update check: on." ;;
+        no) systemctl disable --now trunkvista-update.timer >/dev/null 2>&1 || true; say "   Nightly update check: off." ;;
+    esac
+}
+
+# ---- apply and report
+restart_service() {
+    [ "$changed" = yes ] || return 0
+    if [ "$restart" = no ]; then say "Restart it for the changes to apply:  sudo systemctl restart trunkvista"; return 0; fi
+    if ! have_systemd; then say "No systemd here: restart trunkvista yourself for the changes to apply."; return 0; fi
+    systemctl restart trunkvista || die "the service could not be restarted: journalctl -u trunkvista -n 30"
+    port="$(get_default TRUNKVISTA_PORT)"; port="${port:-8088}"
+    i=0
+    while [ "$i" -lt 20 ]; do
+        if python3 -c 'import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 1).close()' "$port" 2>/dev/null; then return 0; fi
+        sleep 1; i=$((i + 1))
+    done
+    journalctl -u trunkvista -n 10 --no-pager 2>/dev/null || true
+    die "the dashboard does not answer on port $port after the restart. See: journalctl -u trunkvista -n 30"
+}
+summary() {
+    host="$(get_default TRUNKVISTA_HOST)"; host="${host:-127.0.0.1}"
+    port="$(get_default TRUNKVISTA_PORT)"; port="${port:-8088}"
+    scheme=http; [ -z "$(get_default TRUNKVISTA_TLS_CERT)" ] || scheme=https
+    say ""
+    say "TrunkVista is set up."
+    case "$host" in
+        127.0.0.1|localhost|::1) say "  Open (on this computer):  $scheme://127.0.0.1:$port/" ;;
+        *)  say "  Open:"
+            h="$(hostname -f 2>/dev/null || hostname 2>/dev/null || true)"
+            [ -z "$h" ] || [ "$h" = localhost ] || say "     $scheme://$h:$port/"
+            for a in $(hostname -I 2>/dev/null || true); do
+                case "$a" in *:*) ;; *) say "     $scheme://$a:$port/" ;; esac
+            done ;;
+    esac
+    say "  Sign in with the administrator account made at the installation (list the accounts: sudo trunkvista-user list)."
+    if [ -s "$DATA/initial-admin-password" ]; then
+        say "  That password was made for you and has to be changed at the first sign-in:  sudo cat $DATA/initial-admin-password"
+    fi
+    have="$(connections)"
+    case "$have" in
+        ""|"No connections yet."*) say "  Zabbix: not connected yet - the page asks for it at your first sign-in." ;;
+        *) say "  Zabbix: saved (change it in the page, or run trunkvista-setup again)." ;;
+    esac
+    if [ "$scheme" = https ] && [ -s "$TLS_DIR/server.crt" ] && [ "$(get_default TRUNKVISTA_TLS_CERT)" = "$TLS_DIR/server.crt" ]; then
+        say "  Browsers warn about this certificate (it is signed by this server itself) until you import $TLS_DIR/server.crt as a trusted certificate on each PC that opens the page."
+        if command -v openssl >/dev/null 2>&1; then
+            say "  Its SHA-256 fingerprint, to compare with what the browser shows: $(openssl x509 -in "$TLS_DIR/server.crt" -noout -fingerprint -sha256 2>/dev/null | sed 's/^.*=//')"
+        fi
+    fi
+    case "$host" in 127.0.0.1|localhost|::1) ;; *)
+        if command -v ufw >/dev/null 2>&1 && ufw status 2>/dev/null | grep -q '^Status: active'; then
+            say "  Firewall: ufw is active here, so let the dashboard through:  sudo ufw allow $port/tcp"
+        elif command -v firewall-cmd >/dev/null 2>&1 && firewall-cmd --state 2>/dev/null | grep -q running; then
+            say "  Firewall: firewalld is running here, so let the dashboard through:  sudo firewall-cmd --permanent --add-port=$port/tcp && sudo firewall-cmd --reload"
+        fi ;;
+    esac
+    say "  More:  trunkvista-user (accounts), trunkvista-update (new releases), journalctl -u trunkvista (log). Change your mind later: run trunkvista-setup again."
+}
+
+if interactive; then
+    say "TrunkVista setup - three short questions. Enter takes the answer in [brackets]. Nothing here is final: run trunkvista-setup again whenever you like."
+    say ""
+fi
+step_zabbix
+step_access
+step_updates
+restart_service
+summary

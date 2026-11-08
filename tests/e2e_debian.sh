@@ -6,6 +6,7 @@
 #   update   ->  trunkvista-update installs a newer release from a local fake GitHub (good and tampered ones)
 #   remove / reinstall / purge  ->  what stays and what goes
 #   first account  ->  with answers preseeded in debconf, and when a version without accounts is upgraded
+#   setup  ->  trunkvista-setup connects a (fake) Zabbix, switches the network and HTTPS on and off; install.sh installs from a (local) release
 #   old name  ->  an installation of the package "channelview" (the program's first name) becomes a trunkvista one, with its data, accounts,
 #                 HTTPS certificate and settings; needs a package of the old name: E2E_LEGACY_DEB=path, or the commit before the rename in the git history
 #
@@ -47,7 +48,7 @@ DATA=/var/lib/trunkvista
 DEFAULTS=/etc/default/trunkvista
 have_systemd=false; [ -d /run/systemd/system ] && have_systemd=true
 work="$(mktemp -d)"; chmod 0755 "$work"
-mock_pid=""
+mock_pid=""; zbx_pid=""; rel_pid=""
 version="$(dpkg-deb -f "$deb" Version)"
 upstream="${version//\~/-}"
 bump() { local base="${1%%-*}"; echo "${base%.*}.$(( ${base##*.} + 1 ))"; }
@@ -56,6 +57,8 @@ echo "package under test: $deb (version $version);  systemd running: $have_syste
 
 cleanup() {
     [ -z "$mock_pid" ] || kill "$mock_pid" 2>/dev/null
+    [ -z "$zbx_pid" ] || kill "$zbx_pid" 2>/dev/null
+    [ -z "$rel_pid" ] || kill "$rel_pid" 2>/dev/null
     manual_stop
     apt-get purge -y trunkvista channelview >/dev/null 2>&1
     rm -rf "$DATA" "$work" /etc/trunkvista /var/lib/channelview /etc/channelview /etc/default/channelview
@@ -250,6 +253,75 @@ cp "$work/defaults.before-tls" "$DEFAULTS"
 server_up
 wait_http $PORT && ok "back on plain HTTP after removing the two settings" || bad "no answer on plain HTTP"
 
+# ============================================================== trunkvista-setup
+echo "== trunkvista-setup"
+ZPORT=18766
+python3 "$repo_root/tests/fake_zabbix.py" --port "$ZPORT" --token e2e-token >"$work/zbx.log" 2>&1 &
+zbx_pid=$!
+for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$ZPORT/" 2>/dev/null && break; sleep 0.2; done
+check "trunkvista-setup is installed" test -x /usr/bin/trunkvista-setup
+cp "$DEFAULTS" "$work/defaults.before-setup"
+settle() { if $have_systemd; then wait_http "$PORT"; else server_up; wait_http "$PORT"; fi; }          # (without systemd the script cannot restart the server: do it by hand)
+printf 'wrong-token\n' | trunkvista-setup --zabbix-url "http://127.0.0.1:$ZPORT" --token-stdin >"$work/setup.out" 2>&1; rc=$?
+[ $rc != 0 ] && ok "a wrong token is refused" || bad "a wrong token was accepted"
+check "... with the reason, and nothing was saved" bash -c "grep -q 'not saved' $work/setup.out && python3 -c 'import json; assert not json.load(open(\"$DATA/connections.json\"))[\"profiles\"]'"
+printf 'e2e-token\n' | trunkvista-setup --zabbix-url "http://127.0.0.1:$ZPORT" --zabbix-name Lab --token-stdin >"$work/setup.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "trunkvista-setup connects the (fake) Zabbix" || { bad "trunkvista-setup --zabbix-url failed"; cat "$work/setup.out"; }
+check "it tried the connection first and says what it found" grep -q 'Connected to Zabbix 7.0.8: 3 monitored hosts' "$work/setup.out"
+check "the token is not printed" bash -c "! grep -q 'e2e-token' $work/setup.out"
+check "connections.json belongs to the service user, owner-only" fixed "stat -c '%U %a' $DATA/connections.json" "$SVC_USER 600"
+settle || { bad "the dashboard does not answer after the setup"; server_log | tail -5; }
+signin admin "$new_pw" "$work/jar_setup" "http://127.0.0.1:$PORT" >/dev/null
+curl -s -b "$work/jar_setup" "http://127.0.0.1:$PORT/api/connections" >"$work/conns.json"
+if python3 - "$work/conns.json" <<'PY'
+import json, sys
+j = json.load(open(sys.argv[1]))
+p = j["profiles"][0]
+sys.exit(0 if (p["name"], j["active"] == p["id"], p["has_secret"]) == ("Lab", True, True) and "e2e-token" not in json.dumps(j) else 1)
+PY
+then ok "the page's Connections list shows it, in use, without the token"; else bad "the page does not show the saved connection"; fi
+check "the settings file was not touched by that" cmp -s "$DEFAULTS" "$work/defaults.before-setup"
+trunkvista-setup --network --yes >"$work/setup.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "trunkvista-setup --network (with the certificate the HTTPS test above made, for localhost only)" || { bad "trunkvista-setup --network failed"; cat "$work/setup.out"; }
+check "it keeps that certificate but says it does not name this machine's address" grep -q 'was not made for' "$work/setup.out"
+check "... and the certificate was not replaced" bash -c "openssl x509 -in $TLS/server.crt -noout -ext subjectAltName | grep -qv '$(hostname -I | awk '{print $1}')'"
+trunkvista-setup --local --yes >/dev/null 2>&1
+rm -f "$TLS/server.crt" "$TLS/server.key"                    # a machine that has none yet
+cp "$work/defaults.before-setup" "$DEFAULTS"
+trunkvista-setup --network --yes >"$work/setup.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "trunkvista-setup --network (on a machine without a certificate)" || { bad "trunkvista-setup --network failed"; cat "$work/setup.out"; }
+check "it listens everywhere and HTTPS is on, with a certificate it made" bash -c "grep -qx 'TRUNKVISTA_HOST=0.0.0.0' $DEFAULTS && grep -qx 'TRUNKVISTA_TLS_CERT=$TLS/server.crt' $DEFAULTS && grep -qx 'TRUNKVISTA_TLS_KEY=$TLS/server.key' $DEFAULTS && test -s $TLS/server.crt"
+check "nothing else in the settings changed (only those three lines)" bash -c "[ \"\$(diff $work/defaults.before-setup $DEFAULTS | grep -c '^[<>]')\" = 6 ]"      # the host line (old + new) and the two comment lines switched on (old + new each)
+check "it prints the addresses to open, https" grep -q "https://.*:$PORT/" "$work/setup.out"
+$have_systemd || server_up
+wait_https && ok "the dashboard answers over HTTPS on the network address" || { bad "no HTTPS answer after --network"; server_log | tail -5; }
+ext_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+if [ -n "$ext_ip" ]; then
+    if curl -fsS -o /dev/null --noproxy '*' --cacert "$TLS/server.crt" "https://$ext_ip:$PORT/" 2>"$work/ext.err"; then ok "... and answers on this machine's own address ($ext_ip), which the certificate names"
+    else bad "... and answers on this machine's own address ($ext_ip), which the certificate names"; cat "$work/ext.err"; openssl x509 -in "$TLS/server.crt" -noout -ext subjectAltName; grep -E '^TRUNKVISTA_(HOST|PORT)' "$DEFAULTS"; server_log | tail -3; fi
+fi
+check "the connection made before is still there" bash -c "python3 -c 'import json; j=json.load(open(\"$DATA/connections.json\")); assert len(j[\"profiles\"])==1'"
+cp "$DEFAULTS" "$work/defaults.after-network"
+trunkvista-setup --network --yes >"$work/setup.out" 2>&1; rc=$?
+[ $rc = 0 ] && cmp -s "$DEFAULTS" "$work/defaults.after-network" && ok "running it again changes nothing" || bad "the second run changed something"
+trunkvista-setup --local --yes >"$work/setup.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "trunkvista-setup --local" || { bad "trunkvista-setup --local failed"; cat "$work/setup.out"; }
+check "back to this computer only (the certificate settings stay)" bash -c "grep -qx 'TRUNKVISTA_HOST=127.0.0.1' $DEFAULTS && grep -qx 'TRUNKVISTA_TLS_CERT=$TLS/server.crt' $DEFAULTS"
+$have_systemd || server_up
+wait_https && ok "still served over HTTPS" || bad "no HTTPS answer after --local"
+if [ -n "$ext_ip" ]; then check "... and no longer answers on the machine's own address" bash -c "! curl -fsS -o /dev/null --noproxy '*' --max-time 5 --cacert $TLS/server.crt https://$ext_ip:$PORT/"; fi
+if $have_systemd; then
+    trunkvista-setup --auto-update --yes >/dev/null 2>&1
+    check "--auto-update switches the nightly timer on" systemctl is-enabled --quiet trunkvista-update.timer
+    trunkvista-setup --no-auto-update --yes >/dev/null 2>&1
+    check "--no-auto-update switches it off" bash -c "! systemctl is-enabled --quiet trunkvista-update.timer"
+fi
+kill "$zbx_pid" 2>/dev/null; zbx_pid=""
+cp "$work/defaults.before-setup" "$DEFAULTS"
+rm -f "$DATA/connections.json"
+server_up
+wait_http "$PORT" && ok "back on plain HTTP after removing what the setup added" || bad "no answer on plain HTTP"
+
 # ============================================================== remove, reinstall, purge
 echo "== remove / reinstall / purge"
 users_before="$(sha256sum < "$DATA/users.json")"
@@ -404,6 +476,31 @@ else
     apt-get purge -y channelview >/dev/null 2>&1 && ok "the leftover record of the old package can be purged" || bad "purging the old package record failed"
     check "... which leaves the migrated data alone" bash -c "test -f $DATA/marker && test -s $DATA/users.json"
 fi
+
+# ============================================================== install.sh
+echo "== install.sh (from a local copy of a release)"
+$have_systemd || manual_stop
+apt-get purge -y trunkvista channelview >/dev/null 2>&1; rm -rf "$DATA" /etc/trunkvista "$DEFAULTS" /var/lib/channelview /etc/channelview /etc/default/channelview
+for n in trunkvista channelview; do deluser --system "$n" >/dev/null 2>&1; delgroup --system "$n" >/dev/null 2>&1; done
+rel="$work/release"; mkdir -p "$rel"; chmod 0755 "$rel"
+cp "$deb" "$rel/trunkvista-latest.deb"
+( cd "$rel" && sha256sum trunkvista-latest.deb > SHA256SUMS )
+RPORT=18799
+( cd "$rel" && exec python3 -m http.server "$RPORT" --bind 127.0.0.1 >"$work/rel.log" 2>&1 ) &
+rel_pid=$!
+for _ in $(seq 1 20); do curl -s -o /dev/null "http://127.0.0.1:$RPORT/SHA256SUMS" 2>/dev/null && break; sleep 0.2; done
+TRUNKVISTA_BASE_URL="http://127.0.0.1:$RPORT" sh "$repo_root/packaging/install.sh" </dev/null >"$work/install.out" 2>&1; rc=$?
+[ $rc = 0 ] && ok "install.sh installs the package from the release files" || { bad "install.sh failed"; cat "$work/install.out"; }
+check "it checked the download" grep -q 'Checksum ok.' "$work/install.out"
+check "the package is installed (version $version)" fixed "dpkg-query -W -f='\${Version}' trunkvista" "$version"
+check "without a terminal it asked nothing: a random administrator password was made" bash -c "test -s $DATA/initial-admin-password"
+check "it says what is next" grep -q 'sudo trunkvista-setup' "$work/install.out"
+echo "tampered" >> "$rel/trunkvista-latest.deb"
+apt-get purge -y trunkvista >/dev/null 2>&1; rm -rf "$DATA" /etc/trunkvista "$DEFAULTS"
+TRUNKVISTA_BASE_URL="http://127.0.0.1:$RPORT" sh "$repo_root/packaging/install.sh" </dev/null >"$work/install.out" 2>&1; rc=$?
+[ $rc != 0 ] && ok "a package that does not match SHA256SUMS is refused" || bad "install.sh installed a tampered package"
+check "... and nothing was installed" bash -c "! dpkg -s trunkvista 2>/dev/null | grep -q '^Status: install ok installed'"
+kill "$rel_pid" 2>/dev/null; rel_pid=""
 
 echo
 echo "$pass passed, $fail failed"
