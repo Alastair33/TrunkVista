@@ -6,6 +6,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 README = (ROOT / "README.md").read_text(encoding="utf-8")
+ADMIN = (ROOT / "docs" / "administration.md").read_text(encoding="utf-8")      # the long install steps, accounts, HTTPS, updates (the README is the short version)
 WORKFLOW = (ROOT / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
 FIXED_NAMES = ("trunkvista-latest.tar.gz", "install.sh", "trunkvista-latest.deb", "trunkvista.py", "trunkvista_demo.html", "SHA256SUMS")
 
@@ -35,10 +36,10 @@ class DownloadInstructions(unittest.TestCase):
         self.assertIn("@REPO@", installer, "install.sh in the source tree is a template; build_bundle.sh fills in the repository")
         self.assertIn("trunkvista-latest.deb", installer)
         self.assertIn("SHA256SUMS", installer)
-        by_hand = re.sub(r"<!-- whats-new:start.*?<!-- whats-new:end -->", "", README, flags=re.S)           # (the release notes are made from CHANGELOG.md)
         four = "wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz\ntar xzf trunkvista-latest.tar.gz\ncd trunkvista\nsudo ./install.sh\n"
-        self.assertEqual(by_hand.count(four), 2, "the four lines in the quick start and in the install section")
-        self.assertEqual(by_hand.count("releases/latest/download/install.sh | sudo sh"), 2, "the one-liner in the quick start and in the install section")
+        self.assertEqual(README.count(four), 1, "the four lines are in the quick start")
+        self.assertEqual(README.count("releases/latest/download/install.sh | sudo sh"), 1, "the one-liner is in the quick start")
+        self.assertIn(four, ADMIN, "the administration guide repeats the four lines")
         quick = README.split("## Quick start", 1)[1].split("\n## ", 1)[0]
         self.assertIn(four, quick)
         self.assertIn("administrator's password", quick)
@@ -50,7 +51,7 @@ class DownloadInstructions(unittest.TestCase):
 
     def test_the_install_steps_do_not_name_a_version(self):
         """A hard-coded 'apt install ./trunkvista_1.1.0_all.deb' is stale with the next release and is a download of an old version."""
-        install = README.split("## Install on Debian / Ubuntu", 1)[1].split("\n## ", 1)[0]
+        install = ADMIN.split("## Install on Debian / Ubuntu", 1)[1].split("\n## ", 1)[0]
         self.assertIn("apt install ./trunkvista-latest.deb", install)
         self.assertNotRegex(install, r"trunkvista_\d[^\s`]*_all\.deb")
 

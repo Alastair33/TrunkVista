@@ -232,7 +232,10 @@ class ReadmeInSync(unittest.TestCase):
             shutil.copy(ROOT / name, tmp / name)
         r = subprocess.run(["python3", str(ROOT / "packaging" / "whats_new.py"), "--root", str(tmp)], capture_output=True, text=True)
         self.assertEqual(r.returncode, 0, r.stderr)
-        self.assertIn("up to date", r.stdout, "README.md is behind CHANGELOG.md - run: python3 packaging/whats_new.py\n" + r.stdout)
+        if "<!-- whats-new:start" in (ROOT / "README.md").read_text(encoding="utf-8"):
+            self.assertIn("up to date", r.stdout, "README.md is behind CHANGELOG.md - run: python3 packaging/whats_new.py\n" + r.stdout)
+        else:      # the short README has no release-notes block (CHANGELOG.md and the Releases page have them): the script must leave it alone
+            self.assertIn("skipped", r.stdout)
         self.assertEqual((tmp / "README.md").read_text(), (ROOT / "README.md").read_text())
 
 

@@ -13,6 +13,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 - **Light and safe:** one more `item.get` per batch of hosts (no names, no tags). If it fails, the network view keeps working and the header chip shows a ⚠ with the reason. The **Test** button and `trunkvista.py connection test` say how many server items were found.
 - **Demo:** `--demo` and `trunkvista_demo.html` have six servers (Linux and Windows), a *Datacenter* weathermap and a *Servers* tab; the standalone page reads Zabbix with the same rules as the server (tests compare the two).
 
+**Shorter README.** The README is a one-screen start page now (what it is, the four install lines, the download files, a few everyday commands): the long parts moved unchanged into `docs/` - an *administration guide* (install details, `trunkvista-setup`, accounts, HTTPS, updates, troubleshooting), *Servers*, *Changing the design* and a *maintainer guide*. Only two screenshots are kept (the weathermap and the heatmap); the other ten were removed. The release notes are no longer repeated in the README: they are in this file and on the Releases page.
+
 ## [1.3.0] - 2026-11-08
 
 **New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. It has a new logo, and everything that carried the name changed with it:

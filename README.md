@@ -7,22 +7,20 @@
 
 > **Download TrunkVista from the [latest release](https://github.com/Alastair33/TrunkVista/releases/latest)** - not with *Code → Download ZIP* and not by cloning: the branch can hold changes that are not released yet. [Details](#download)
 
-TrunkVista is a browser dashboard for **Zabbix 7.0** (built for Cisco gear behind one or more Zabbix proxies, and for the servers next to it):
+A browser dashboard for **Zabbix 7.0**, built for Cisco gear behind Zabbix proxies and the servers next to it.
 
-- **Weathermap tabs** – devices joined by interface links; each link is coloured by status and utilisation and labelled with % and bit/s per direction. Hover a link for an in / out traffic graph.
-- **Device tabs** – cards, a sortable list or a **heatmap** of colour-coded tiles, grouped by status, type, proxy, OS, model, …
-- **Server data** – CPU, memory, swap, load, disks and uptime of hosts monitored with the **Zabbix agent**, read through the API next to the Cisco interface data. [Details](#servers-zabbix-agent)
-- **Playlists** and a kiosk mode for NOC wall displays, a built-in editor, a connection menu for your Zabbix API.
-- **Sign-in** with **administrator** and **viewer** accounts (set up while you install), an automatic sign-out you choose per account (or *never*, for a wall display), and a login-throttle. [Details](#accounts-and-sign-in)
-- **Dark and light** colour themes (dark is the default), switched with a button in the header or the **T** key; *Auto* follows the system.
-- One Python file, standard library only. Works in Chrome and Firefox. The browser only ever talks to this program, never to Zabbix, and never sees the API token.
+- **Weathermaps** - devices joined by interface links, coloured by status and utilisation, labelled with % and bit/s per direction. Hover a link for its traffic graph.
+- **Device tabs** - cards, a sortable list or a heatmap, grouped by status, type, proxy, OS or model.
+- **Servers** - CPU, memory, swap, load, disks and uptime of hosts monitored with the Zabbix agent. [More](docs/servers.md)
+- **Playlists and kiosk mode** for wall displays, a built-in editor, dark and light themes.
+- **Sign-in** with admin and viewer roles. The browser only talks to TrunkVista, never to Zabbix, and never sees the API token.
+- One Python file, standard library only (Python 3.9+).
 
-```
-python3 trunkvista.py --demo      # try it with simulated Cisco devices and servers, no Zabbix needed -> http://127.0.0.1:8088
-trunkvista_demo.html              # or just open this file in a browser: a standalone demo
-```
+![A weathermap: five Cisco devices joined by coloured links](docs/screenshots/01-weathermap.png)
 
-Both files are part of every [release](#download).
+![The heatmap coloured by busiest interface](docs/screenshots/09-heatmap.png)
+
+Try it without Zabbix: `python3 trunkvista.py --demo`, or open `trunkvista_demo.html` in a browser.
 
 ## Quick start (Debian / Ubuntu)
 
@@ -33,632 +31,86 @@ cd trunkvista
 sudo ./install.sh
 ```
 
-Four lines from nothing to a dashboard that is running. The only thing the installation asks is the **administrator's password** (Enter = a random one is made for you and kept for root to read). Then:
+The only question is the **administrator's password** (Enter = a random one, kept for root in `/var/lib/trunkvista/initial-admin-password`). Then open **http://127.0.0.1:8088/**, sign in as `admin` and enter your **Zabbix** address and an API token (Zabbix: *Users → API tokens*; a read-only user is enough). The page tries them before it saves anything.
 
-1. open **http://127.0.0.1:8088/** on that machine and sign in as `admin`;
-2. the page asks for your **Zabbix** server - its address and an API token - and tries them before it saves anything. That is the only place where they are entered.
-
-The archive holds the installer, the package and its checksum, so it works on a machine without internet access as well: copy the archive there. Should other PCs or wall displays open the dashboard too? `sudo trunkvista-setup --network` lets them (and switches HTTPS on). No `wget` archive wanted? `curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh` downloads and checks the same package. More in [Install on Debian / Ubuntu](#install-on-debian--ubuntu); not Debian? [Without the package](#without-the-package-any-system-with-python-39).
+- No archive wanted: `curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh`
+- Other PCs or wall displays should open it: `sudo trunkvista-setup --network` (listens on the network and switches HTTPS on; `--local` goes back).
+- Not Debian / Ubuntu: see [Without the package](#without-the-package).
 
 ## Download
 
-**Always take TrunkVista from the newest release:** <{REPO}/releases/latest>
+Always take TrunkVista from the newest release, not from *Download ZIP* or a clone. The files keep the same names in every release:
 
-The *Code → Download ZIP* button and `git clone` give you the `main` branch as it is right now. That can contain changes that are not released and have not been through the release checks (tests, a real install on a clean machine, checksums). The Releases page is where finished versions are. Every release carries these files, always under the same names:
-
-| I want to ... | File in the latest release |
+| File | For |
 |---|---|
-| install it on Debian / Ubuntu | `trunkvista-latest.tar.gz` (the installer, the package below and its checksum: unpack it and run `sudo ./install.sh`; works without internet access) |
-| install it on Debian / Ubuntu in one command | `install.sh` (the same installer on its own: downloads, checks and installs the package below) |
-| install it on Debian / Ubuntu by hand | `trunkvista-latest.deb` (the same package as `trunkvista_<version>_all.deb`) |
-| run it on another system with Python 3.9+ | `trunkvista.py` (one file, standard library only) |
-| try it without a Zabbix | `trunkvista_demo.html` (open it in a browser) |
-| check what I downloaded | `SHA256SUMS` (and `SHA256SUMS.sig` when the release is signed) |
-
-Addresses that always lead to the newest release (pre-releases are never "latest"):
+| `trunkvista-latest.tar.gz` | Debian / Ubuntu: installer + package + checksum (works offline) |
+| `install.sh` | Debian / Ubuntu: downloads, checks and installs the package |
+| `trunkvista-latest.deb` | Debian / Ubuntu: the package alone |
+| `trunkvista.py` | any system with Python 3.9+ |
+| `trunkvista_demo.html` | a demo in the browser, no Zabbix needed |
+| `SHA256SUMS` | checking the downloads: `sha256sum -c --ignore-missing SHA256SUMS` |
 
 ```
-{REPO}/releases/latest/download/trunkvista-latest.tar.gz
-{REPO}/releases/latest/download/install.sh
-{REPO}/releases/latest/download/trunkvista-latest.deb
-{REPO}/releases/latest/download/trunkvista.py
-{REPO}/releases/latest/download/trunkvista_demo.html
-{REPO}/releases/latest/download/SHA256SUMS
+https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz
+https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh
+https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.deb
+https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista.py
+https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista_demo.html
+https://github.com/Alastair33/TrunkVista/releases/latest/download/SHA256SUMS
 ```
 
-On a server, download and check the package in one go:
+While the repository is private these only work in a browser signed in to GitHub; on a server use `gh release download --repo Alastair33/TrunkVista --pattern trunkvista-latest.deb --pattern SHA256SUMS`.
 
-```
-curl -fLO {REPO}/releases/latest/download/trunkvista-latest.deb
-curl -fLO {REPO}/releases/latest/download/SHA256SUMS
-sha256sum -c --ignore-missing SHA256SUMS            # must say: trunkvista-latest.deb: OK
-```
-
-While the repository is **private** these addresses only work in a browser that is signed in to GitHub. On a server use the GitHub command-line tool (`gh auth login` once), which downloads the latest release when you do not name one:
-
-```
-gh release download --repo Alastair33/TrunkVista --pattern trunkvista-latest.deb --pattern SHA256SUMS
-sha256sum -c --ignore-missing SHA256SUMS
-```
-
-Once it is installed, `sudo trunkvista-update` keeps it on the newest release - see *Updating from GitHub*. To work **on** the program, clone the repository instead (see *Development*): a checkout is for developers, not for running a server.
-
-## Screenshots
-
-All of these show the built-in demo data (simulated Cisco devices and servers), so no real network is on display.
-
-**Weathermap.** Each link is coloured by its utilisation and labelled with % and bit/s for each direction; the legend shows the scale.
-
-![A weathermap tab: five Cisco devices joined by coloured links](docs/screenshots/01-weathermap.png)
-
-**Status at a glance.** A link whose interface is down turns red and says DOWN; a device with open problems gets a numbered badge.
-
-![The Branches weathermap with one link down](docs/screenshots/02-weathermap-link-down.png)
-
-**Link hover.** The card shows the status, both directions, the capacity and an in / out traffic graph (range selectable in the header).
-
-![The hover card of a link with its traffic graph](docs/screenshots/03-link-traffic-graph.png)
-
-**Device tabs.** Cards or a sortable list, with a filter, grouping, paging, and the busiest interfaces per device. A third view, the heatmap, is shown below.
-
-![A device tab in card view](docs/screenshots/04-devices-cards.png)
-![A device tab in list view with 128 hosts](docs/screenshots/05-devices-list.png)
-
-**Heatmap.** One tile per device, so a few hundred devices fit on one screen. *Colour by* picks what the colour means: **Status** (down, up with problems, up), **Busiest interface** (the usage scale of the weathermap) or **Worst problem** (Zabbix severity). The value is written on every tile too, so the colour is never the only signal, and a legend names the colours. *Sort by* with the order button puts the hottest devices first; filter, *Only with issues*, grouping and paging work as in the other views.
-
-![The heatmap coloured by busiest interface, hottest first](docs/screenshots/09-heatmap.png)
-
-Hover a tile for the device's details, click it (or press Enter) to open them. A device tab can open as a heatmap by default (Edit › This tab › Style); every viewer can still switch views, and the choice is remembered per tab in that browser. In kiosk mode the tiles and the legend stay.
-
-![The heatmap coloured by status, with the details of a device under the pointer](docs/screenshots/10-heatmap-details.png)
-
-**Editor.** Edit mode: tabs, devices (added from Zabbix) and links; right-click a device or link for the shape, size, notifications, modify and delete.
-
-![Edit mode with the right-click menu of a device](docs/screenshots/06-editor-and-context-menu.png)
-![The Modify link window](docs/screenshots/07-modify-link.png)
-
-**Playlists and kiosk mode.** A playlist rotates through tabs on a timer; kiosk mode hides the header and the controls (a Back button and the playlist progress remain), for a wall display.
-
-![Kiosk mode showing a playlist](docs/screenshots/08-kiosk-playlist.png)
-
-**Light mode.** The *◐ / ☀ / ☾* button in the header (or the **T** key) cycles *Dark* (the default), *Light* and *Auto* (follows the system setting). The map, graphs, heatmap, hover cards and dialogs all follow; see [Changing the design](#changing-the-design) for wall displays and `custom.css`.
-
-![The weathermap in light mode](docs/screenshots/11-light-weathermap.png)
-![The heatmap in light mode with the details of a device under the pointer](docs/screenshots/12-light-heatmap-details.png)
-
-## Release notes
-
-Each release gets its own segment below, newest first - the same text GitHub shows on the [Releases](https://github.com/Alastair33/TrunkVista/releases) page. Older versions are in [`CHANGELOG.md`](CHANGELOG.md).
-
-<!-- whats-new:start - made from CHANGELOG.md by packaging/whats_new.py (release.sh runs it); edit CHANGELOG.md, not this block -->
-### What's new in 1.3.0
-
-*2026-11-08*
-
-**New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. It has a new logo, and everything that carried the name changed with it:
-
-- **Package and files:** `trunkvista` (`trunkvista_<version>_all.deb`, `trunkvista-latest.deb`), `trunkvista.py`, `trunkvista_demo.html`; commands `trunkvista-user`, `trunkvista-update`, `trunkvista-cert`; service `trunkvista` and `trunkvista-update.timer`; folders `/var/lib/trunkvista`, `/etc/trunkvista`, `/etc/default/trunkvista`, `~/.trunkvista`; settings `TRUNKVISTA_*`; the session cookie is `tv_session`.
-- **The Debian package of the new name replaces the old one** (`Conflicts` / `Replaces: channelview`). When it is installed over a ChannelView installation, it moves the data (layouts, the saved Zabbix connections, accounts, `custom.css`), the HTTPS certificate and key, the update signing key and the settings in `/etc/default` (renamed to `TRUNKVISTA_*`) to the new places, keeps the nightly update check on if it was on, removes the old service user and says what it did. Everybody signs in again once (the cookie has a new name). Afterwards `sudo apt purge channelview` removes the leftover package record; it does not touch the moved data.
-- **Without the package:** `CHANNELVIEW_*` environment variables are still read (`TRUNKVISTA_*` wins), `~/.channelview` is renamed to `~/.trunkvista` the first time (when the new folder does not exist and no `--data-dir` is given), and the browser's remembered choices (colour theme, view options, the standalone demo's layouts) are moved to the new keys.
-- **A new logo** for the new name: a blue *trunk* that forks at a router node into four *links* in the usage colours, each ending in a node. It is in the page header, on the sign-in page (both follow the accent colour) and as the tab icon; `docs/logo` holds the logo set (SVG and PNG for dark and light backgrounds, one-colour versions, app icon, favicon, GitHub social preview) with the scripts that draw it, and `tools/embed_logo.py` puts it into the program. The screenshots in the README show it.
-
-**Easier installation.** From nothing to a dashboard that is running, in four lines and one answer - the administrator's password; the Zabbix server and its API token are entered in the web page only:
-
-```
-wget https://github.com/<owner>/<repository>/releases/latest/download/trunkvista-latest.tar.gz
-tar xzf trunkvista-latest.tar.gz
-cd trunkvista
-sudo ./install.sh
-```
-
-- **`trunkvista-latest.tar.gz`** - a new file in every release (listed in `SHA256SUMS`): a folder `trunkvista/` with `install.sh`, the package and its checksum. It works on a machine without internet access (copy the archive there); `install.sh` checks the package against the checksum and installs it with apt. The archive is made by the new `packaging/build_bundle.sh`, the same way every time.
-- **`install.sh`** also stays a file of its own, for `curl -fsSL https://github.com/<owner>/<repository>/releases/latest/download/install.sh | sudo sh`: it downloads the newest release (never the branch), checks the package against the release's `SHA256SUMS` (a mismatch stops it) and installs it; `--version X.Y.Z` takes another release. Even piped from curl it asks its one question on your terminal.
-- **Only the administrator's password is asked** (by apt, as before; empty = a random one, kept for root). The administrator is called `admin` unless `trunkvista/admin_user` is preseeded - the name is no longer asked. Nothing is asked about Zabbix: an administrator who opens the page is taken to the Connections window by itself, where the address and the API token are entered and tried before they are saved.
-- **`trunkvista-setup`** - a new command for what the page cannot do, up to two questions with their answers in `[brackets]`: **who will open the dashboard** (this computer, or other PCs: the dashboard then listens on the network and **HTTPS is switched on** with a certificate it makes, the addresses to open are printed, and so is the command for an active `ufw` / `firewalld`; over SSH the default is the network) and **nightly updates**. It restarts the service and waits until it answers. Safe to run again; it edits only the lines of `/etc/default/trunkvista` it must and never replaces a certificate of your own. `--network`, `--local`, `--auto-update`, `--yes`, ... do the same without questions; for scripted installations `--zabbix-url` with `--token-stdin` / `--token-file` also saves a Zabbix connection (tried first).
-- **`trunkvista.py connection add | list | test`** - the Zabbix connections from the command line, also without the Debian package. The API token is read hidden (or from standard input / a file, never from the command line) and is tried before it is saved.
-- The README starts with a **quick start**, the install steps are in three flavours (four lines / one command / step by step), and a section describes running it **without the package** on any system with Python 3.9+.
-
-**Upgrading from ChannelView (1.2.1 or older):** `channelview-update` cannot cross the rename (it looks for packages called `channelview`), so install the new package **once by hand**: download `trunkvista-latest.deb` from the latest release and run `sudo apt install ./trunkvista-latest.deb`. From then on `sudo trunkvista-update` works as before. Not moved by the installation: a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), scripts or monitoring that call the old command names, and a reverse proxy or firewall rule that names the old service. Past releases keep their old name in this file.
-
-**Sign-in.** TrunkVista now asks everybody to sign in, and the Debian installation creates the first account. **This changes how an existing installation behaves** - see *Upgrading* below.
-
-- **Accounts with two roles.** *Administrators* edit (tabs, devices, links), manage the Zabbix connections and the other accounts; *viewers* can only look and use *Refresh now*. Viewing needs an account too: without a session the server answers with the sign-in page and nothing else (no layout, no device names), and `401` to every API call.
-- **The installation asks for the first administrator's password** (at least 10 characters; the account is called `admin`) with a debconf question; an empty password - or an installation without a terminal, such as an unattended update - makes a random one. It is kept in `/var/lib/trunkvista/initial-admin-password` (root only), shown when installing from a terminal, and the account must choose its own password at the first sign-in (which deletes the file). The answers can be preseeded with `debconf-set-selections`; the password is not left in debconf's database.
-- **Automatic sign-out per account.** Administrators set it for each account (1 minute up to a year, or *never* for a wall display); defaults are 60 minutes for administrators and 8 hours for viewers. Only what a person does counts as activity, not the page refreshing itself. Sessions are kept by the server, so they survive a restart and an update - a wall display is signed in once.
-- **Account management** in the page (the button with your name: *Account*, *Users…*: add, role, automatic sign-out, disable, set a password, sign out everywhere, delete) and on the server: **`trunkvista-user`** (`list`, `add`, `passwd`, `set`, `delete`, `signout`; also `python3 trunkvista.py user ...` without the package). A running server sees the changes at once. The last enabled administrator cannot be removed, and nobody can demote, disable or delete their own account.
-- **Hardening.** Passwords are salted PBKDF2-HMAC-SHA256 (600 000 rounds); only a hash of each session key is stored; the cookie is `HttpOnly`, `SameSite=Strict` and `Secure` over HTTPS (or with `--secure-cookie` behind an HTTPS proxy); changes need a token that belongs to the session (the old shared edit token is gone); sign-in is rate-limited per address and per account, an unknown user costs as much time as a wrong password, and unknown name / wrong password / disabled account look the same. Sign-ins, failures and account changes are logged without any secret. Concurrent hashing is limited so a flood of sign-ins cannot starve the dashboard.
-- **Safer defaults.** The service starts with `--require-login`: with no account at all nobody can get in (instead of everybody). The program refuses to listen on other addresses than the local computer while no account exists (`--no-login` keeps the old behaviour, not recommended). `custom.css` also applies to the sign-in page.
-
-**Upgrading from 1.2.x:** the upgrade creates the administrator (it asks; see above), removes the old `edit_token` and requires a sign-in from then on. If `trunkvista-update` runs the upgrade unattended, read `/var/lib/trunkvista/initial-admin-password` afterwards (or `sudo trunkvista-user passwd admin`). A reverse proxy in front of the dashboard needs `--secure-cookie` in `TRUNKVISTA_ARGS`; see the README.
-
-### What's new in 1.2.1
-
-*2026-11-05*
-
-People who download ChannelView are now sent to the **latest release**, never to the branch.
-
-- **Fixed file names in every release.** Besides `channelview_<version>_all.deb`, each release carries `channelview-latest.deb` (the same package),
-  `channelview.py` (the single program file, for systems without apt), `channelview_demo.html` and `SHA256SUMS`, which lists all of them. GitHub's
-  `releases/latest/download/<name>` address therefore always serves the newest full release (pre-releases are never "latest"). `channelview-update`
-  is unaffected: it still looks for `channelview_<version>_all.deb` only.
-- **README.** A new *Download* section (and a note under the logo) says to take ChannelView from the latest release and not with *Code → Download ZIP*
-  or a clone of `main`, which can hold unreleased changes; it lists the files and their permanent addresses, how to check the checksums, and how
-  to download from a private repository with `gh`. The Debian install steps no longer name a version, *Updating* says that only the newest full
-  release is installed, and *Development* says that a clone is for working on the program.
-- The release notes on GitHub end with the same advice. A test keeps the README and the release workflow in agreement about the file names.
-
-### What's new in 1.2.0
-
-*2026-11-05*
-
-A **light mode** and a **heatmap view** for the device tabs, easier-to-read labels, and the fixes from a review of the whole program.
-
-- **Light mode.** A button in the header (or the **T** key) switches the colour theme: *Dark* (the default, as before), *Light*, or *Auto*, which
-  follows the system setting and changes with it. The choice is remembered in the browser; a wall display can be set from its address
-  (`#theme=light`, `#theme=dark` or `#theme=auto`, e.g. `...#kiosk=1&theme=light`). The map, the traffic graph, the heatmap, hover cards, menus and
-  dialogs all follow the theme. `custom.css` keeps working in both themes: a `:root { ... }` rule applies to both, `:root[data-theme=light] { ... }`
-  or `:root[data-theme=dark] { ... }` to one of them. The map's frame, label and graph colours are variables now (`--nodefill`, `--halo`,
-  `--iftag`, `--gab`, `--gba`, ...), so they can be restyled there as well.
-- **Heatmap view for device tabs**, next to List and Cards: one small tile per device, coloured by *Status*, *Busiest interface* (the usage
-  scale of the weathermaps) or *Worst problem* (Zabbix severity), with the value written on the tile and a legend above. *Sort by* and the
-  order button put the hottest devices first; hover a tile for details, click it (or press Enter) to open them. Filter, grouping, paging and
-  kiosk mode work as in the other views. A device tab can open as a heatmap by default (Edit > This tab > Style); the viewer's choice of view
-  and colour is remembered in the browser.
-- Text on a coloured fill (the usage labels on the weathermap, heatmap tiles, the usage scale) is now dark or light, whichever reads better;
-  white text on the mid greens and oranges was hard to read (about 2:1).
-- The name of the selected connection in the Connections window was almost invisible (dark text on a dark highlight); fixed.
-- The toolbar summary ("Showing 1-50 of 128 ...") wraps to its own line instead of being cut off when the toolbar is full.
-
-**Fixes from a review of the whole program**
-
-- **The edit token is no longer given to a request that comes through a reverse proxy.** A proxy on the same machine made every visitor look local, so
-  anyone who could reach the proxy could edit. A request that carries a proxy header (`X-Forwarded-For`, `X-Forwarded-Host`, `X-Real-IP`, `Forwarded`,
-  `Via`) gets a read-only page now. Not every proxy sends such a header, so the README still says: keep the dashboard on the loopback address
-  behind a proxy and protect the proxy itself.
-- The page can be opened through the IPv6 loopback address (`http://[::1]:8088`); the check of the `Host` header refused it.
-- An address that answers with something other than a Zabbix JSON-RPC reply (a web page, other JSON) is reported as a wrong URL instead of an
-  internal error.
-- `connections.json` (it holds the API tokens) is created readable by its owner only from the first byte; there was a moment during the write
-  when it carried the default permissions.
-- A connection that sends nothing is dropped after 60 s, so idle sockets cannot pile up.
-- A drag that the browser cancels (a touch that turns into a page scroll) no longer leaves the page "dragging", which had stopped the data from
-  refreshing; in edit mode a finger drags a device or a bend point instead of scrolling the page.
-- Playlists: one whose tabs have all been deleted does not start or loop on nothing, and a playlist without *loop* stops after its last tab.
-
-**Project**
-
-- The README has a **Release notes** section: every release gets a "What's new in X.Y.Z" segment (the latest three are shown, older ones are in
-  this file). `packaging/release.sh` writes it from the notes of the release, so it never differs from what GitHub shows; pre-releases are skipped.
-- The README screenshots were retaken (they still showed the old diamond logo) and two light-mode screenshots were added.
-- CI also runs ruff (pyflakes rules), a JavaScript syntax check of both page scripts, and a test that keeps the dark and light palettes
-  defining the same variables.
-<!-- whats-new:end -->
-
-## Servers (Zabbix agent)
-
-Besides the interfaces of your Cisco devices, TrunkVista reads **server data** from Zabbix: a host that Zabbix monitors with its **agent** (passive or active) shows its **CPU, memory, swap, load average, filesystems and uptime** on its card, in the list, in the heatmap and in the tooltip of its node on a weathermap. Nothing has to be set up: the same API token is used, and the data is found by the item keys of Zabbix's own templates. Servers also take part in weathermaps - their network cards are interfaces like those of a switch, so a link between a core switch port and `ens192` of a server is drawn like any other.
-
-| Shown | Where it comes from (item key) |
-|---|---|
-| **CPU** % | `system.cpu.util` (Linux and Windows by Zabbix agent); `system.cpu.util[...]` (the SNMP templates, so **Cisco devices show their CPU, too** - the busiest CPU counts); older templates: `100 - system.cpu.util[,idle]` |
-| **Memory** % | `vm.memory.utilization` (Linux); `vm.memory.size[pused]` (Windows); `vm.memory.util[...]` (SNMP); else from `vm.memory.size[pavailable]` or `[available]` and `[total]` |
-| **Swap** % | `system.swap.size[,pused]` or `[,pfree]`; `system.swap.pfree` (Windows) |
-| **Load** | `system.cpu.load[all,avg1]` (the 1 minute average), and as a share of `system.cpu.num` CPUs |
-| **Disks** | `vfs.fs.dependent.size[<filesystem>,pused]` (and `vfs.fs.size[<filesystem>,pused]`) - the fullest six; the fullest is the one in the list and the heatmap |
-| **Uptime** | `system.uptime`, `system.boottime`, or `system.net.uptime[...]` / `system.hw.uptime[...]` (SNMP) |
-| **Network cards** | `net.if.in["ens192"]` and `net.if.out["ens192"]` as for any interface (the error and drop counters of the agent templates are not traffic and are left out); on **Linux** the state and the speed of a card come from `vfs.file.contents["/sys/class/net/<card>/operstate"]` and `.../speed`, which `Linux by Zabbix agent` collects |
-
-- **Bars are coloured with the colour scale of the links** (the legend of the weathermap), so 90 % of a disk looks like 90 % of a link. In the **list**, the columns *Type*, *CPU*, *Memory* and *Fullest disk* appear when there is something to show in them; in the **heatmap** *Colour* offers CPU, Memory and Fullest disk; **Group by › Type** separates servers from network devices.
-- **Server or network device?** A host that Zabbix reaches with an **agent interface** (and not with SNMP) is a *server*; so is a host that reports a load average, swap or disks. Everything else is a *network device*.
-- **Hosts on active checks** (no passive agent): Zabbix does not show their availability, so a server whose values are fresh counts as *up*. If Zabbix says the agent interface is unreachable, the host stays *down*.
-- **Old values are not shown.** A value that has not been updated for `stale_seconds` (default 300; filesystems: at least an hour) is left out - a dead agent does not keep showing its last CPU.
-- **It costs one more request per batch of hosts** (a light one: no names, no tags) and is read together with the rest at every refresh. If that request fails, the network view keeps working and the header chip shows a **⚠** with the reason when you point at it.
-- **What it does not do:** keys of your own templates (the keys above are the ones of Zabbix's stock templates), the disks of SNMP hosts (`vfs.fs.pused[...]`), and per-process or per-service data. A host is a "server" by its interface type, so a Linux host monitored by SNMP only is a network device with the data the SNMP template gives it.
-- The **Test** button of the Connections window (and `trunkvista.py connection test`) says how many server items it found. **`--demo`** and the standalone `trunkvista_demo.html` have six servers (Linux and Windows), a *Datacenter* weathermap and a *Servers* tab to try it with.
-
-## Install on Debian / Ubuntu
-
-Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
-
-### The four lines
-
-```
-wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz
-tar xzf trunkvista-latest.tar.gz
-cd trunkvista
-sudo ./install.sh
-```
-
-What `install.sh` does, in this order: checks the package next to it against the checksum that came with it (and stops if they differ), then installs it with `apt-get`, which asks for **the administrator's password** - nothing else. Empty = a random one is made and kept in `/var/lib/trunkvista/initial-admin-password`; so is it without a terminal (a script, Ansible), where nothing is asked at all. The administrator is called `admin`; add people with [`trunkvista-user`](#accounts-and-sign-in) afterwards, or preseed another name (see there). The installation does not need the internet, apart from what apt fetches for the package's own dependencies (Python 3).
-
-The dashboard then runs on **this computer only** (`http://127.0.0.1:8088/`). Open it, sign in, and **enter your Zabbix server in the page**: its address (`https://zabbix.example.com`) and an API token (Zabbix: *Users → API tokens → Create API token*; a read-only user that can see your hosts is enough) → **Test** → **Save & use**. Neither is asked by the installation, and neither is typed into a file. Reaching the dashboard from other PCs is one more command: [`sudo trunkvista-setup --network`](#trunkvista-setup-network-access-and-updates).
-
-`install.sh` is a short script: read it before you run it as root (`less install.sh`). The checksum in the archive catches a damaged or half-copied package; to be sure the archive itself is the release's, compare it with `SHA256SUMS` from the same release (`sha256sum -c --ignore-missing SHA256SUMS`, see [Download](#download)). While the repository is **private** `wget` cannot reach it without signing in: download with the GitHub tool as shown in [Download](#download), then continue at `tar xzf`.
-
-### One command, no archive
-
-```
-curl -fsSL https://github.com/Alastair33/TrunkVista/releases/latest/download/install.sh | sudo sh
-```
-
-The same script on its own: it downloads `trunkvista-latest.deb` and `SHA256SUMS` from the **latest release** (never from the branch), checks the package and installs it - then the same password question, the same page. `sudo sh install.sh --version 1.3.0` takes a release other than the newest (this way only: an unpacked archive installs the package it holds). Piped from `curl`, the script still asks its one question on your terminal.
-
-### Step by step
-
-The same, by hand - for a machine where you want to see each step, or a private repository:
-
-1. Download `trunkvista-latest.deb` and `SHA256SUMS` from the **[latest release](https://github.com/Alastair33/TrunkVista/releases/latest)** and check them (see *Download* above).
-2. Install it:
-
-   ```
-   sudo apt install ./trunkvista-latest.deb
-   ```
-
-   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the password of the first administrator** (at least 10 characters). Leave it empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
-3. Open `http://127.0.0.1:8088` on that machine, **sign in**, and add your Zabbix in the window that opens (as above).
-
-### trunkvista-setup, network access and updates
-
-After the installation the dashboard listens on this computer only and the nightly update check is off. `sudo trunkvista-setup` asks two questions about that and does the rest. Every question has its answer in `[brackets]`; Enter takes it, and **running it again is safe** - it changes only what you answer. (The Zabbix server is not among them: it is entered in the page.)
-
-| Question | What it does |
-|---|---|
-| **Who will open the dashboard?** | *This computer only* (the default) or *other computers*: the dashboard then listens on all interfaces (`TRUNKVISTA_HOST=0.0.0.0`) and **HTTPS is switched on** - a self-signed certificate for this machine's names and addresses is made and entered into `/etc/default/trunkvista`. Logged in over SSH, the default is the second answer: that is a server. It also prints the addresses to open and, if `ufw` or `firewalld` is active, the one command that lets the port through. |
-| **Install new releases automatically?** | Switches the nightly `trunkvista-update.timer` on. Default no: it installs software unattended, so you decide. |
-
-Afterwards it restarts the service, waits until it answers, and prints where to open it. It edits only the lines of `/etc/default/trunkvista` that it must (comments, port and update settings stay); your own certificate (`TRUNKVISTA_TLS_CERT` already set) is never replaced.
-
-Without questions - for a script or a fleet - give the answers as options; anything you do not mention stays as it is:
-
-```
-sudo trunkvista-setup --network --auto-update
-sudo trunkvista-setup --local --yes
-```
-
-| Option | |
-|---|---|
-| `--network`, `--local` | other PCs may open it (listens everywhere, HTTPS on) / this computer only. `--network` needs an account to exist |
-| `--no-https` | with `--network`: no HTTPS, because a reverse proxy in front does it ([see below](#https-do-this-as-soon-as-other-pcs-open-it)) |
-| `--auto-update`, `--no-auto-update` | the nightly update check on / off |
-| `--yes`, `--no-restart` | never ask / do not restart the service |
-
-**Zabbix from a script.** A fleet that must come up connected can give the connection as options as well (it is tried first and saved only if Zabbix accepts it; on failure nothing else is changed either): `--zabbix-url URL` (`/api_jsonrpc.php` is added), the API token from `--token-file FILE` or `--token-stdin` (never an option on the command line, where other users could read it), `--zabbix-user NAME` (log in with this user and a password in the file / standard input instead of a token), `--zabbix-name TEXT` and `--no-verify-tls` (accept a self-signed HTTPS certificate on the Zabbix side):
-
-```
-echo "$ZABBIX_API_TOKEN" | sudo trunkvista-setup --zabbix-url https://zabbix.example.com --token-stdin --yes
-```
-
-The same is available on its own, which is the way for a run without the package and for a script that has no sudo: `python3 trunkvista.py connection add https://zabbix.example.com` (`list` and `test` show and try what is saved; a running dashboard reads the connections when it starts).
-
-### Without the package (any system with Python 3.9+)
-
-One file, standard library only - no installation:
+## Without the package
 
 ```
 curl -fLO https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista.py
-python3 trunkvista.py user add NAME --role admin          # the first account; asks for the password twice
-python3 trunkvista.py connection add https://zabbix.example.com       # asks for the API token (typing is hidden), tries it, saves it
-python3 trunkvista.py                                      # http://127.0.0.1:8088 - for other PCs: --host 0.0.0.0 --tls-cert ... --tls-key ... (see HTTPS)
+python3 trunkvista.py user add NAME --role admin               # the first account
+python3 trunkvista.py connection add https://zabbix.example.com   # asks for the API token, tries it, saves it
+python3 trunkvista.py                                          # http://127.0.0.1:8088
 ```
 
-The data (accounts, connections, layouts) lives in `~/.trunkvista`; `--data-dir` changes that. It is not started again after a reboot - for that, use the Debian package, or write a service for your system.
+Data lives in `~/.trunkvista` (`--data-dir` changes that). It does not restart after a reboot; use the Debian package for a service.
 
-Check on it:
-
-```
-systemctl status trunkvista
-journalctl -u trunkvista -f
-```
-
-### Accounts and sign-in
-
-**Everybody signs in** - viewing needs an account as well as editing. There are two roles:
-
-| Role | May |
-|---|---|
-| **admin** | everything: edit tabs, devices and links, the Zabbix connections, and the accounts of the others |
-| **viewer** | look: tabs, playlists, kiosk mode, heatmap, graphs, and *Refresh now*. Nothing else - not even the list of Zabbix connections |
-
-**At the installation** `apt install` asks for the administrator's password (the account is called `admin`; preseed `trunkvista/admin_user`, below, to choose another name - or add a second administrator with `trunkvista-user add NAME --role admin` and delete `admin`). If you leave the password empty - or the installation runs without a terminal, as an unattended upgrade does - a random one is made: it is shown at the end of an installation from a terminal and kept in `/var/lib/trunkvista/initial-admin-password` (readable by root only). That account **has to choose its own password at the first sign-in**; the file is deleted then. `apt` keeps a copy of the installation screen in `/var/log/apt/term.log`, which is why the account must change the password before anything else.
-
-To answer the questions in advance (an automated installation):
+## Everyday use
 
 ```
-echo 'trunkvista trunkvista/admin_user string admin
-trunkvista trunkvista/admin_password password CHOOSE-A-LONG-PASSWORD
-trunkvista trunkvista/admin_password_again password CHOOSE-A-LONG-PASSWORD' | sudo debconf-set-selections
-sudo DEBIAN_FRONTEND=noninteractive apt install ./trunkvista-latest.deb
+sudo trunkvista-user add anna --role viewer                        # accounts: list, add, passwd, set, signout, delete
+sudo trunkvista-user add wall1 --role viewer --idle never --password-stdin    # a wall display that stays signed in
+sudo trunkvista-update                                             # install the newest release (--check only looks)
+sudo systemctl enable --now trunkvista-update.timer                # or update every night
+sudo trunkvista-cert                                               # self-signed HTTPS certificate (--network does this for you)
 ```
 
-The password is not kept in debconf's database after the installation, but a preseed file you wrote still holds it - delete it afterwards.
-
-**Upgrading from 1.2.x or older:** those versions had no sign-in (viewing was open, editing used the edit token). The upgrade creates the administrator as above, removes the old `edit_token` and from then on asks everybody to sign in. A `trunkvista-update` that runs from the timer cannot ask: it makes the random-password account, so read `/var/lib/trunkvista/initial-admin-password` (or run `sudo trunkvista-user passwd admin`) after such an update.
-
-**Managing accounts** - as an administrator, in the page: the button with your name in the header opens *Account* (change your own password, sign out) and, for administrators, *Users…* (add, change role, automatic sign-out, disable, set a password, sign out everywhere, delete). Or on the server, which also works when nobody can sign in:
-
-```
-sudo trunkvista-user list
-sudo trunkvista-user add anna --role viewer                       # asks for the password twice
-sudo trunkvista-user add wall1 --idle never --password-stdin      # a wall display; the password comes from standard input
-sudo trunkvista-user add bob --role admin --random-password       # prints the password once
-sudo trunkvista-user passwd anna --must-change                    # new password; anna has to change it at the next sign-in
-sudo trunkvista-user set anna --idle 120                          # sign out after 2 hours without use
-sudo trunkvista-user set anna --disable                           # or --enable, --role admin
-sudo trunkvista-user signout anna
-sudo trunkvista-user delete anna
-```
-
-A running server sees these changes at once. **Locked out?** Every administrator forgot the password: `sudo trunkvista-user passwd NAME --must-change`.
-
-**Automatic sign-out (per account).** Idle time counts from what a person does on the page (a click, a key, a touch) - the page refreshing itself does not count. The defaults are 60 minutes for an administrator and 8 hours for a viewer; `--idle never` (or *Never* in the Users dialog) is for a **wall display** that has to stay on. The sign-in itself is remembered by the browser and by the server (it survives a restart and an update), so a wall display needs to be signed in once. Give such an account the `viewer` role: a display that is never signed out should not be able to change anything.
-
-**Good to know**
-
-- Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes (600 000 rounds) in `users.json`; sessions as hashes of a random key in `sessions.json`; both owner-only. A new password, disabling an account or *sign out everywhere* ends all sessions of that account.
-- Wrong passwords are slowed down: 10 failures from one address in 5 minutes, or 20 for one account in 15 minutes, block further tries for a while (HTTP 429). Behind a reverse proxy all visitors share the proxy's address, so the limit for the address applies to all of them together; the limit per account protects them in any case.
-- The last enabled administrator cannot be deleted, demoted or disabled, and nobody can demote, disable or delete **their own** account.
-- Every sign-in, failed attempt and account change is in the log (`journalctl -u trunkvista | grep accounts`) - never a password or a session key.
-- The session cookie is `HttpOnly` and `SameSite=Strict`, and marked `Secure` when the dashboard serves HTTPS itself. Changes are only accepted with a request token that belongs to the session, so another website cannot make your browser change anything.
-- The Zabbix API token never reaches the browser, whoever is signed in.
-- Do not run the program with `--no-login` on a network: it ignores the accounts and falls back to the old behaviour (everyone can view, editing needs the edit token). Without any account the program refuses to listen on other addresses than the local computer.
-- Running it by hand (without the package): `python3 trunkvista.py user add NAME --role admin` creates the first account in the data folder (`~/.trunkvista` by default); `--require-login` makes a server ask for a sign-in even before the first account exists.
-
-### Making it reachable from other PCs / wall displays
-
-The easy way: **`sudo trunkvista-setup --network`** (or answer *other computers* when `sudo trunkvista-setup` asks). It does what is described here and in the next section: listens on all interfaces, makes a certificate, switches HTTPS on, restarts, and prints the addresses. Take `--local` to go back.
-
-By hand: by default it listens on `127.0.0.1` only. Edit `/etc/default/trunkvista`:
-
-```
-TRUNKVISTA_HOST=0.0.0.0
-```
-
-then `sudo systemctl restart trunkvista` (open the port in your firewall if you run one).
-
-- **Everybody has to sign in** (see above): create the accounts for the people and wall displays first, then change the setting. Without HTTPS the passwords cross the network readable - switch it on (next section) before other PCs open the page.
-- A port below 1024 needs `sudo systemctl edit trunkvista` → `[Service]` / `AmbientCapabilities=CAP_NET_BIND_SERVICE`.
-
-### HTTPS (do this as soon as other PCs open it)
-
-Without HTTPS the passwords, the session cookie and everything else cross the network readable. The dashboard serves HTTPS **itself** – no Apache or Nginx needed. `sudo trunkvista-setup --network` switches it on in one step (with the self-signed certificate below); this section is what it does, and how to use a certificate of your own.
-
-```
-sudo trunkvista-cert          # self-signed certificate for this machine -> /etc/trunkvista/tls/
-```
-
-Add the two lines it prints to `/etc/default/trunkvista` (a fresh install has them there, commented out; after an upgrade from 1.0.0 you add them), then restart:
-
-```
-TRUNKVISTA_TLS_CERT=/etc/trunkvista/tls/server.crt
-TRUNKVISTA_TLS_KEY=/etc/trunkvista/tls/server.key
-```
-```
-sudo systemctl restart trunkvista      # now:  https://<server>:8088/
-```
-
-- Typing `http://` on that port redirects to `https://`. TLS 1.2 or newer only.
-- **Browser warning:** a self-signed certificate is not trusted until you import `server.crt` as a trusted certificate on each PC / kiosk that opens the page. With a certificate from your own CA or Let's Encrypt there is no warning.
-- **Your own certificate:** point the two settings at your files. The certificate file holds the full chain (certificate first); the key must be readable by the group `trunkvista` (`chgrp trunkvista key.pem && chmod 640 key.pem`). The key may also sit in the certificate file – then leave `TRUNKVISTA_TLS_KEY` out.
-- **Renewal needs no restart.** The files are looked at again when they change (checked on new connections, about every 10 s). `sudo trunkvista-cert --force` or certbot is enough. If the new files do not load (the key does not match, a file is half written) the old certificate stays in use and the log says so.
-- A wrong certificate path or a key that does not fit stops the service at start with the reason in `journalctl -u trunkvista`.
-- Let's Encrypt, as an example of a deploy hook (`/etc/letsencrypt/renewal-hooks/deploy/trunkvista`, adjust the paths):
-
-  ```
-  #!/bin/sh
-  install -D -m 0644 "$RENEWED_LINEAGE/fullchain.pem" /etc/trunkvista/tls/server.crt
-  install -D -m 0640 -g trunkvista "$RENEWED_LINEAGE/privkey.pem" /etc/trunkvista/tls/server.key
-  ```
-- **Reverse proxy instead?** Not needed. If you want one anyway (one address for several tools): the proxy must speak HTTPS to the browsers, and you add `--secure-cookie` to `TRUNKVISTA_ARGS` in `/etc/default/trunkvista` so that the sign-in cookie is marked `Secure` although the proxy talks plain HTTP to the dashboard. While the dashboard listens on `127.0.0.1` only, it accepts requests whose `Host` header is `127.0.0.1:<port>` / `localhost:<port>` (protection against DNS rebinding), so the proxy has to send that (nginx: `proxy_set_header Host 127.0.0.1:8088;`), or the dashboard has to listen on a non-loopback address that only the proxy can reach. Accounts are always required, so a proxy on the same machine does not open anything up.
-
-## Updating from GitHub
-
-```
-sudo trunkvista-update              # shows what is new, asks, installs, restarts the service
-sudo trunkvista-update --check      # only look; exit status 10 = an update is available (handy for monitoring)
-sudo trunkvista-update --yes        # no question
-sudo trunkvista-update --version 1.0.0 --force     # go back to a given release
-sudo trunkvista-update --channel prerelease        # release candidates too (or TRUNKVISTA_UPDATE_CHANNEL=prerelease in /etc/default/trunkvista)
-```
-
-It reads `TRUNKVISTA_UPDATE_REPO` from `/etc/default/trunkvista` (the release workflow fills in your repository), downloads the `.deb` and `SHA256SUMS` of the **newest full release** (the one GitHub marks *Latest*; pre-releases are skipped unless you choose that channel), checks them, and installs with `apt`. It never installs from the branch, and it does not go back to an older release unless you ask with `--version ... --force`. Your settings in `/etc/default/trunkvista`, your connections, layouts and accounts are kept.
-
-**Automatic updates** are off. To check every night (about 03:30, random delay up to an hour) and install:
-
-```
-sudo systemctl enable --now trunkvista-update.timer
-```
-
-Look at it with `systemctl list-timers trunkvista-update.timer` and `journalctl -u trunkvista-update`.
-
-**Private repository:** put a GitHub token (fine-grained, read-only access to *Contents* of this repository) in a file, `chmod 600` it, and set `TRUNKVISTA_UPDATE_TOKEN_FILE=/path/to/file` in `/etc/default/trunkvista`. The token is only ever sent to the GitHub API.
-
-### What protects an update
-
-- Every release carries `SHA256SUMS`; the update refuses a `.deb` that does not match it, and a release without `SHA256SUMS`.
-- It checks that the file really is `trunkvista` for `all` architectures with the announced version before installing.
-- **Optional signature.** If `/etc/trunkvista/release-key.gpg` exists, `SHA256SUMS` must carry a valid GPG signature (`SHA256SUMS.sig`) from that key, otherwise nothing is installed. Set it up once, see *Signing releases* below.
-- Without a signature the trust is "whoever can publish a release in the repository". With one it is "whoever holds the signing key". Either way you are installing code that runs as a service on your server: keep the GitHub account protected (2FA) and the repository private if the dashboard shows anything you would rather not publish.
-
-## Upgrading from ChannelView
-
-TrunkVista is the new name of ChannelView (same program, same data). On a Debian / Ubuntu machine that runs the old package:
-
-```
-# download trunkvista-latest.deb from the latest release (see Download), then:
-sudo apt install ./trunkvista-latest.deb
-```
-
-The package of the new name **replaces** `channelview` and takes everything over: layouts, Zabbix connections, accounts, `custom.css`, the HTTPS certificate and key, the settings in `/etc/default` (their names change from `CHANNELVIEW_*` to `TRUNKVISTA_*`) and the nightly update check if you had switched it on. The installation prints what it moved. Everybody has to sign in once more. If you had no accounts yet (ChannelView 1.2.1 or older), it asks for the first administrator as in a fresh installation.
-
-- **This step is manual, once:** `channelview-update` only looks for packages called `channelview`, so it cannot find the new release. After the first `apt install` above, `sudo trunkvista-update` works as usual.
-- **Tidy up:** `sudo apt purge channelview` removes the leftover package record; the moved data is not touched.
-- **Not moved:** a systemd drop-in in `/etc/systemd/system/channelview.service.d/` (copy it to `trunkvista.service.d/`), and anything of your own that calls `channelview-user`, `channelview-update` or `channelview-cert`, the old service name or the old paths.
-- **Without the package** (running `python3 trunkvista.py`): `CHANNELVIEW_*` variables are still read, `~/.channelview` is renamed to `~/.trunkvista` the first time, and the browser's remembered choices (theme, view options) are carried over.
-- **GitHub:** when the repository is renamed, GitHub forwards the old addresses, so existing links and `TRUNKVISTA_UPDATE_REPO` settings keep working.
-
-## Changing the design
-
-**Quick, on the server – `custom.css`.** Your own style rules, added after the built-in ones. The file lives in the data folder, so updates never touch it, and it is read at every page load (edit, press F5 – no restart).
-
-```
-sudo nano /var/lib/trunkvista/custom.css
-```
-```css
-:root { --accent: #ff9f1a; }                    /* colours of the interface, in both themes */
-:root[data-theme=dark] { --bg: #05080c; }       /* only in the dark theme (see Light and dark below) */
-body  { font-size: 15px; }
-```
-
-| Variable | Used for |
-|---|---|
-| `--bg` | page background, input fields |
-| `--panel`, `--panel2` | header, side panels, dialogs, cards |
-| `--line` | borders and separators |
-| `--text`, `--muted` | normal and secondary text |
-| `--accent` | selected items, links, highlights |
-| `--ok`, `--bad`, `--warn` | green / red / amber in the interface (badges, buttons) |
-
-This restyles the **interface** (header, panels, buttons, text, fonts, sizes) and, through the variables listed under *Light and dark* below, the frame, labels and graph colours of the map. The status and usage colours – link colours, the usage scale, device status dots – are the same in both themes, are drawn by the program and are changed in a release, see below. Press F12 in the browser to find the element and class names for finer rules. Delete the file to go back to the built-in look. Size limit 256 KB.
-
-**Light and dark.** The button in the header (◐ Auto, ☀ Light, ☾ Dark) or the **T** key switches the theme; it is remembered in that browser. **Dark is the default**, so a wall display does not turn white by itself when you update. *Auto* follows the system setting (and changes with it while the page is open). For a display you cannot click, put the theme in its address – it is remembered like the other choices:
-
-```
-http://dashboard:8088/#kiosk=1&play=wall&theme=light      # theme=dark | light | auto
-```
-
-`custom.css` works in both themes. A plain `:root { ... }` rule applies to **both**; to change one theme only, use `:root[data-theme=light] { ... }` or `:root[data-theme=dark] { ... }` (these win over the plain rule). Besides the variables above, the map has its own:
-
-| Variable | Used for |
-|---|---|
-| `--on-accent` | text on accent-coloured buttons |
-| `--hl`, `--hover` | selected and hovered rows and menu items |
-| `--nodefill`, `--sel` | the inside of a device on the map, and its outline when selected |
-| `--halo`, `--iftag`, `--lname` | outline of map labels, interface names beside a link, link name |
-| `--mapbg1`, `--mapbg2`, `--mapgrid` | the map background (centre, edge) and the grid shown while editing |
-| `--gab`, `--gba` | the two lines of the traffic graph (first device to second, and back) |
-
-The complete list is the first two rules of the page's CSS (`:root` for dark, `:root:where([data-theme=light])` for light): the two palettes define the same names, and a test keeps them that way.
-
-**The logo.** The header shows the mark (a blue trunk that forks into four links in the usage colours, each ending in a node) and the browser tab uses the same drawing as its icon. The trunk and its node follow `--accent`, so a changed accent colour changes them too; to remove the mark from the header, add `.logo svg { display: none; }` to `custom.css`. All logo files (SVG, PNG, favicon, social preview) and the rules for using them are in [`docs/logo`](docs/logo/README.md).
-
-**Bigger changes, for everybody – a release.** The whole page (HTML, CSS, JavaScript) is the `PAGE` text in `trunkvista.py`.
-
-1. Change it and look: `python3 trunkvista.py --demo` (reload the browser after each change).
-2. Write what changed under `## [Unreleased]` in `CHANGELOG.md`.
-3. Release it (*Patching and releasing* below). Every server then offers it with `sudo trunkvista-update`.
-
-## Setting up GitHub and the first release (maintainer)
-
-One-time setup:
-
-```
-cd TrunkVista
-git init -b main
-git add -A && git commit -m "Initial import"
-git remote add origin git@github.com:<you>/<repository>.git
-git push -u origin main
-```
-
-The first release (the notes are already written under `## [1.1.0]`; later ones: *Patching and releasing* below):
-
-```
-packaging/release.sh --push 1.1.0
-```
-
-What happens after the push: GitHub Actions (`.github/workflows/release.yml`) runs the tests, builds the `.deb`, **installs / upgrades / updates / removes / purges it on a clean runner**, and publishes the release with `trunkvista_1.1.0_all.deb`, the same package again as `trunkvista-latest.deb`, `trunkvista.py`, `trunkvista_demo.html` and `SHA256SUMS` (and `SHA256SUMS.sig`). The fixed names are what makes `releases/latest/download/<name>` always serve the newest release (see *Download*); `trunkvista-update` ignores `trunkvista-latest.deb` because it looks for `trunkvista_<version>_all.deb`. If anything fails nothing is published – fix it, delete the tag (`git push --delete origin v1.1.0; git tag -d v1.1.0`) and release again. Servers get it with `sudo trunkvista-update`.
-
-A tag with a dash (`v1.2.0-rc.1`) is a **pre-release**: only servers on the `prerelease` channel see it. Inside the package its version is `1.2.0~rc.1`, which sorts before `1.2.0`. The file is called `trunkvista_1.2.0-rc.1_all.deb` because GitHub renames a `~` in file names.
-
-The workflow refuses a tag that does not match `VERSION`.
-
-`.github/workflows/ci.yml` runs the tests, shellcheck, a demo-page check and the install test on every push and pull request.
-
-### Signing releases (optional, recommended)
-
-```
-gpg --quick-generate-key "TrunkVista releases" ed25519 sign never      # choose a passphrase
-gpg --armor --export-secret-keys "TrunkVista releases"                 # -> GitHub: Settings > Secrets and variables > Actions > RELEASE_GPG_PRIVATE_KEY
-                                                                             #    (the passphrase goes into the secret RELEASE_GPG_PASSPHRASE)
-gpg --export "TrunkVista releases" > release-key.gpg                   # the public key, for the servers:
-sudo apt install gpgv
-sudo install -D -m 0644 release-key.gpg /etc/trunkvista/release-key.gpg
-```
-
-From the next release on the workflow signs `SHA256SUMS`. From the moment the key file exists on a server, that server installs **only** signed releases – do the first signed release before you copy the key to the servers.
-
-## Patching and releasing (maintainer)
-
-`VERSION` in `trunkvista.py` is the only place a version lives; `packaging/release.sh` sets it.
-
-| Command | Use it for | Example |
-|---|---|---|
-| `packaging/release.sh patch --push` | a fix or a small design change | 1.1.0 → 1.1.1 |
-| `packaging/release.sh minor --push` | a new feature | 1.1.0 → 1.2.0 |
-| `packaging/release.sh major --push` | something that changes how it is used | 1.1.0 → 2.0.0 |
-| `packaging/release.sh 1.1.1-rc.1 --push` | a pre-release for trying it first | – |
-
-It needs notes under `## [Unreleased]` in `CHANGELOG.md` (they become the release notes and the release's **What's new in X.Y.Z** segment in the README – the latest three versions are shown there, made by `packaging/whats_new.py`, so edit the CHANGELOG and never that block), runs the unit tests (a failure puts everything back), commits, tags, and with `--push` pushes – GitHub Actions does the rest. Without `--push` it stops before publishing and tells you how to undo.
-
-**Try a patch on one server first:** release `1.1.1-rc.1`, then on a test server `sudo trunkvista-update --channel prerelease`. If it is good, release the final version with `packaging/release.sh 1.1.1 --push` (the notes are still under `[Unreleased]`); servers on the normal channel only ever see that one.
-
-**Back out a bad release:** on each server `sudo trunkvista-update --version 1.1.0 --force`, then fix and release again. Do not delete a release servers have installed.
-
-## Where things are
-
-| What | Where |
-|---|---|
-| Program | `/usr/lib/trunkvista/trunkvista.py` (command `trunkvista`) |
-| Network / update setup, updater, certificate helper, account manager | `/usr/bin/trunkvista-setup`, `/usr/bin/trunkvista-update`, `/usr/bin/trunkvista-cert`, `/usr/bin/trunkvista-user` |
-| Service, update service and timer | `/lib/systemd/system/trunkvista*.service`, `trunkvista-update.timer` |
-| Settings (listen address, port, HTTPS files, update repository / channel) | `/etc/default/trunkvista` – kept on upgrades; `trunkvista-setup` edits it for you |
-| Data: connections (Zabbix API token, owner-only), layouts, accounts (password hashes, owner-only), sessions | `/var/lib/trunkvista/` (`connections.json`, `dashboard*.json`, `users.json`, `sessions.json`) |
-| The random first password, until it has been changed (root only) | `/var/lib/trunkvista/initial-admin-password` |
-| Your style rules (optional) | `/var/lib/trunkvista/custom.css` |
-| HTTPS certificate and key (optional) | `/etc/trunkvista/tls/` (`server.crt`, `server.key`) |
-| Signing key for updates (optional) | `/etc/trunkvista/release-key.gpg` |
-
-The service runs as its own user `trunkvista`, sandboxed by systemd (no access to home directories, read-only system, only its data folder is writable).
-
-**Backup:** copy `/var/lib/trunkvista` (it holds the API token and the password hashes – treat the copy as a secret).
-
-**Remove:** `sudo apt remove trunkvista` removes the program, keeps settings and data. `sudo apt purge trunkvista` also removes `/etc/default/trunkvista`. Data (including the accounts), the user and `/etc/trunkvista` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/trunkvista /etc/trunkvista && sudo deluser --system trunkvista`.
+Admins edit and manage accounts and Zabbix connections; viewers only look. Locked out? `sudo trunkvista-user passwd NAME --must-change`.
 
 ## Troubleshooting
 
 | Symptom | Look at |
 |---|---|
-| Page does not open | `systemctl status trunkvista`, `journalctl -u trunkvista -n 50`; port taken? change `TRUNKVISTA_PORT` |
-| Service stops right after enabling HTTPS | `journalctl -u trunkvista -n 20` – "Cannot use the TLS certificate": wrong path, key does not fit, or the key is not readable by the group `trunkvista` |
-| Browser: "not secure" / certificate warning | the certificate is self-signed: import `server.crt` on that PC, or use a certificate from your CA / Let's Encrypt; the name in the address must be one of the names `trunkvista-cert` printed |
-| Cannot sign in: "Wrong user name or password" | the same message is shown for an unknown name, a wrong password and a disabled account; `sudo trunkvista-user list` shows the accounts, `sudo trunkvista-user passwd NAME` sets a new password |
-| "Too many failed attempts" | wait the number of seconds it says (the log tells who and from where: `journalctl -u trunkvista \| grep accounts`) |
-| Signed out again and again | the account's automatic sign-out is too short for the use: `sudo trunkvista-user set NAME --idle never` (wall display) or a longer time |
-| Page says "No account exists yet" | the installation could not make one: `sudo trunkvista-user add NAME --role admin` |
-| "This needs an administrator account" | you are signed in as a viewer |
-| A server shows no CPU / memory / disks | the Test button (Connections) says how many server items it found - 0 means no host has items with the keys in [Servers](#servers-zabbix-agent); open the host in Zabbix > Latest data and look for `system.cpu.util`, `vm.memory.util...`, `vfs.fs.dependent.size[...,pused]`; items older than 5 minutes (`stale_seconds`) are left out, so also check that the agent is alive |
-| Header chip shows ⚠ next to the host count | the request for the server data failed (the network view is not affected); point at the chip for the reason - often the API user's role may not read those items |
-| Page shows no data / "unconfigured" | Connections menu (click the status chip): URL, API token, **Test** (the page opens it by itself for an administrator while nothing is connected) |
-| `trunkvista-setup`: "does not answer on port ..." | the service did not start with the new settings: `journalctl -u trunkvista -n 30` (a bad certificate path, a port that is taken); undo with `sudo trunkvista-setup --local` |
-| `wget` / `install.sh`: "could not download", 404 | no internet access from this machine (a proxy?), or a private repository: download with `gh` (see [Download](#download)); with no access to GitHub at all, fetch `trunkvista-latest.tar.gz` elsewhere and copy it over |
-| `install.sh`: "more than one package next to install.sh" | the folder holds two `trunkvista_*_all.deb`; keep the one you want installed |
-| Updater: "no stable release" | the repository has no non-pre-release release yet, or `TRUNKVISTA_UPDATE_REPO` is wrong; private repository → token file |
-| Updater: "releases must be signed" | `/etc/trunkvista/release-key.gpg` exists but the release is not signed – sign it, or remove the key file |
-| Updater: "API rate limit is used up" | GitHub allows 60 unauthenticated API calls per hour per address; use a token file |
+| Page does not open | `systemctl status trunkvista`, `journalctl -u trunkvista -n 50`; port taken? set `TRUNKVISTA_PORT` |
+| No data / "unconfigured" | click the status chip: URL, API token, **Test** |
+| A server shows no CPU / memory / disks | **Test** says how many server items it found; items older than 5 minutes are left out, so check the agent is alive |
+| Cannot sign in | the message is the same for a wrong name, a wrong password and a disabled account: `sudo trunkvista-user list` / `passwd NAME` |
+
+More in the [administration guide](docs/administration.md#troubleshooting).
+
+## More
+
+- [Administration guide](docs/administration.md) - install details, `trunkvista-setup`, accounts, HTTPS and your own certificate, updates and signatures, where files live, backup and removal, upgrading from ChannelView
+- [Servers](docs/servers.md) - which Zabbix items are read and how
+- [Changing the design](docs/customizing.md) - `custom.css`, themes, the logo
+- [Maintainer guide](docs/maintainer.md) - releases, signing, development
+- [Release notes](CHANGELOG.md) and the [Releases page](https://github.com/Alastair33/TrunkVista/releases)
 
 ## Development
 
-Clone the repository only to work on the program. To *use* TrunkVista take the [latest release](#download): the branch you clone can be ahead of it.
-
 ```
 python3 trunkvista.py --demo                       # run from a checkout
-python3 -m unittest discover -s tests -v              # unit tests: app, server data, accounts and sign-in, HTTPS (needs openssl), updater against a fake GitHub, release script (needs git); a few compare the standalone page's JavaScript with the server (need node)
-python3 tools/build_demo.py trunkvista_demo.html   # rebuild the standalone demo page after changing the dashboard page
-packaging/build_deb.sh                                # -> dist/trunkvista_<version>_all.deb + SHA256SUMS (needs dpkg-deb)
-sudo tests/e2e_debian.sh                              # really installs / upgrades / purges the package - only on a throw-away machine
+python3 -m unittest discover -s tests -v           # unit tests (some need openssl, git or node)
+python3 tools/build_demo.py trunkvista_demo.html   # rebuild the demo page after changing the dashboard page
 ```
-
-`tests/e2e_debian.sh` also tests the move from the old name: it builds `channelview` packages from the git history (the last release, and the commit before the rename, `589d2cb`), so run it in a clone with the full history (`fetch-depth: 0` in the workflows), or give it a package of the old name with `E2E_LEGACY_DEB=path/channelview_X_all.deb`; without either that part is skipped.
 
 ## Licence
 
-Not chosen yet. Until you add a `LICENSE` file, nobody else may use or copy the code. Update `packaging/deb/copyright` when you do.
+Not chosen yet. Until a `LICENSE` file is added, nobody else may use or copy the code.
