@@ -158,6 +158,8 @@ def load_config(path: Path):
     z["username"] = os.environ.get("ZBX_USER", z["username"])
     z["password"] = os.environ.get("ZBX_PASSWORD", z["password"])
     cfg["poll_seconds"] = max(5, int(cfg["poll_seconds"]))
+    cfg["stale_seconds"] = max(30, int(cfg["stale_seconds"]))
+    cfg["min_severity"] = max(0, min(5, int(cfg["min_severity"])))
     cfg["max_hosts"] = max(1, min(50000, int(cfg["max_hosts"])))
     cfg["graph_minutes"] = snap_to(int(cfg["graph_minutes"]), GRAPH_RANGES)
     return cfg
@@ -243,6 +245,11 @@ HINTS = {
 }
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, *a, **kw):
+        return None
+
+
 class ZabbixClient:
     """Minimal Zabbix 7.0 JSON-RPC client (API token or user/password -> Bearer auth)."""
 
@@ -265,6 +272,9 @@ class ZabbixClient:
             ctx.check_hostname = False
             ctx.verify_mode = ssl.CERT_NONE
         self.ctx = ctx
+        # Redirects are not followed: urllib would turn the POST into a GET (which Zabbix answers with a web page) and carry the
+        # Authorization header - the API token - along to wherever the redirect points.
+        self.opener = urllib.request.build_opener(urllib.request.HTTPSHandler(context=ctx), _NoRedirect)
         self.lock = threading.Lock()
         self._id = 0
 
@@ -276,9 +286,13 @@ class ZabbixClient:
             headers["Authorization"] = "Bearer " + self.token
         req = urllib.request.Request(self.url, body, headers, method="POST")
         try:
-            with urllib.request.urlopen(req, timeout=self.timeout, context=self.ctx) as r:
+            with self.opener.open(req, timeout=self.timeout) as r:
                 data = json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            to = str(e.headers.get("Location") or "")[:200] if 300 <= e.code < 400 and e.headers else ""
+            e.close()
+            if to:
+                raise ZabbixError(f"Zabbix redirects to {to} (HTTP {e.code}) - enter that address instead of {self.url}", kind="url")
             raise ZabbixError(f"HTTP {e.code} from Zabbix ({self.url})", kind="url" if e.code == 404 else "http")
         except (urllib.error.URLError, socket.timeout, ssl.SSLError, OSError) as e:
             reason = getattr(e, "reason", e)
@@ -1105,6 +1119,13 @@ def live_starter_layout():
 
 def validate_layout(d):
     """Strict whitelist copy of an incoming layout; raises ValueError with a readable message."""
+    try:
+        return _validate_layout(d)
+    except (AttributeError, TypeError, KeyError, IndexError, OverflowError) as e:      # a list where an object belongs, a number with 400 digits, ...
+        raise ValueError(f"the layout is not built as expected ({type(e).__name__})")
+
+
+def _validate_layout(d):
     if not isinstance(d, dict):
         raise ValueError("layout must be an object")
 
@@ -1284,6 +1305,16 @@ def profile_cfg(base, prof):
     return cfg
 
 
+def url_origin(url):
+    """(scheme, host, port) of a URL, lower case, with the default port filled in - "the same server" for a stored secret."""
+    try:
+        u = urllib.parse.urlsplit(str(url).strip())
+        scheme = (u.scheme or "").lower()
+        return scheme, (u.hostname or "").lower(), u.port or {"http": 80, "https": 443}.get(scheme, 0)
+    except ValueError:
+        return ("", str(url), 0)
+
+
 class Connections:
     """Saved Zabbix connections (<data>/connections.json, owner-only) plus the read-only one that
     config.json / ZBX_* environment variables may define (id 'default'). Secrets never leave this class
@@ -1344,7 +1375,9 @@ class Connections:
         if not re.match(r"^https?://[^\s/]+", url, re.I):
             raise ValueError("The URL must start with http:// or https://")
         auth = d.get("auth") if d.get("auth") in ("token", "password") else "token"
-        same = bool(existing) and existing.get("auth") == auth
+        # A blank secret means "keep the stored one" - but only for the server it was stored for. With another address the stored token or
+        # password would be SENT there: whoever holds an administrator's session could read it back that way (Test or Save with their own URL).
+        same = bool(existing) and existing.get("auth") == auth and url_origin(existing.get("url", "")) == url_origin(url)
         p = {"id": existing["id"] if existing else "", "url": url, "auth": auth,
              "name": txt(d.get("name"), 60) or (urllib.parse.urlparse(url).hostname or "Zabbix"),
              "verify_tls": bool(d.get("verify_tls", True)), "token": "", "username": "", "password": "", "match": {}}
@@ -1355,6 +1388,9 @@ class Connections:
             p["password"] = txt(d.get("password"), 400) or (existing.get("password", "") if same else "")
             if not p["username"]:
                 raise ValueError("Enter the Zabbix username")
+        if existing and not same and not (p["token"] or p["password"]) and (existing.get("token") or existing.get("password")):
+            what = "API token" if auth == "token" else "password"
+            raise ValueError(f"Enter the {what} again: the saved one is only used for the server address (or sign-in method) it was saved with")
         for k, v in (d.get("match") or {}).items() if isinstance(d.get("match"), dict) else []:
             if k in MATCH_KEYS and str(v).strip():
                 p["match"][k] = txt(v, 300)
@@ -1485,7 +1521,7 @@ class App:
             with self.gmu:
                 self.gcache.clear()
             self.snap, self.group_ids, self.all_ids, self.all_cut = {"ts": 0, "hosts": {}, "interfaces": {}, "metrics": {}}, {}, [], False
-            self.status = {"ok": False, "error": err or "waiting for first poll", "last_ok": 0, "last_try": 0,
+            self.status = {"ok": False, "error": err or "waiting for first poll", "warn": "", "last_ok": 0, "last_try": 0,
                            "seconds": 0, "version": "", "hosts": 0, "demo": self.is_demo, "conn": name}
             if persist:
                 self.conns.set_active(cid)
@@ -4177,11 +4213,85 @@ class TlsContext:
 
 
 class DashServer(ThreadingHTTPServer):
+    """One thread per connection - so the number of connections is limited, and a request that does not arrive is cut off:
+    without that, about a thousand connections that never finish their request use up every file handle and nobody else gets in."""
     tls = None                                    # a TlsContext when this server speaks HTTPS
+    max_connections = 512                         # at the same time, all addresses together (a systemd service may open 1024 files by default)
+    max_per_address = 64                          # ... and from one address (a browser opens 6; a reverse proxy in front is ONE address)
+    request_queue_size = 128                      # connections the system keeps waiting while the server is busy (the default of 5 drops bursts)
+
+    def __init__(self, *a, **kw):
+        self._cmu = threading.Lock()
+        self._per, self._total = {}, 0            # open connections per address / in total
+        self._watched, self._reaper = {}, None    # handler -> (socket, deadline): requests that are being read
+        self.refused = 0
+        super().__init__(*a, **kw)
+
+    def process_request(self, request, client_address):
+        ip = client_address[0] if client_address else ""
+        with self._cmu:
+            full = self._total >= self.max_connections or self._per.get(ip, 0) >= self.max_per_address
+            if full:
+                self.refused += 1
+            else:
+                self._total += 1
+                self._per[ip] = self._per.get(ip, 0) + 1
+        if full:
+            if self.tls is None:                  # (on HTTPS there is no handshake yet to say it in)
+                with contextlib.suppress(OSError):
+                    request.settimeout(1)
+                    request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Type: text/plain\r\nContent-Length: 22\r\nRetry-After: 5\r\nConnection: close\r\n\r\nToo many connections.\n")
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except BaseException:                     # (no thread could be started)
+            self._release(ip)
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._release(client_address[0] if client_address else "")
+
+    def _release(self, ip):
+        with self._cmu:
+            self._total = max(0, self._total - 1)
+            n = self._per.get(ip, 0) - 1
+            if n > 0:
+                self._per[ip] = n
+            else:
+                self._per.pop(ip, None)
+
+    # ---- deadlines: a socket timeout starts again with every byte, so one byte every few seconds would keep a request open for ever
+    def watch(self, handler, sock, seconds):
+        with self._cmu:
+            self._watched[handler] = (sock, time.monotonic() + seconds)
+            if self._reaper is None:
+                self._reaper = threading.Thread(target=self._reap, name="deadlines", daemon=True)
+                self._reaper.start()
+
+    def unwatch(self, handler):
+        with self._cmu:
+            self._watched.pop(handler, None)
+
+    def _reap(self):
+        while True:
+            time.sleep(1)
+            now = time.monotonic()
+            with self._cmu:
+                late = [(h, sock) for h, (sock, t) in self._watched.items() if t < now]
+                for h, _ in late:
+                    del self._watched[h]
+            for _, sock in late:
+                with contextlib.suppress(OSError, ValueError):
+                    sock.shutdown(socket.SHUT_RDWR)      # the thread that reads from it gets "connection closed" and ends
 
     def handle_error(self, request, client_address):
         # A browser that does not trust the certificate, a port scanner, a dropped connection: not worth a traceback in the log.
-        if self.tls is not None and isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError, TimeoutError)):
+        # (Without this, a flood of half-open connections also writes a traceback each into the log.)
+        if isinstance(sys.exc_info()[1], (ssl.SSLError, ConnectionError, TimeoutError)):
             return
         super().handle_error(request, client_address)
 
@@ -4198,6 +4308,8 @@ class Handler(BaseHTTPRequestHandler):
     allowed_hosts = None  # None = do not check (only enforced when bound to loopback)
     tls_timeout = 15      # seconds for the TLS handshake of a new connection (HTTPS only)
     timeout = 60          # seconds a connection may sit idle or send too slowly (otherwise a silent client would hold its thread for ever)
+    head_seconds = 15     # ... and once a request has begun, its first line and headers must be complete within this time, however slowly they drip
+    body_seconds = 30     # ... and the body of a POST (at most 2 MB) within this
     PROXY_HEADERS = ("X-Forwarded-For", "X-Forwarded-Host", "X-Real-IP", "Forwarded", "Via")
     _plain_http = False
 
@@ -4206,20 +4318,49 @@ class Handler(BaseHTTPRequestHandler):
         if tls is not None:
             raw = self.request
             raw.settimeout(self.tls_timeout)
-            first = raw.recv(1, socket.MSG_PEEK)
-            if not first:
-                raise ConnectionAbortedError("closed before sending anything")
-            if first != b"\x16":                  # a TLS connection starts with 0x16; this is somebody typing http:// -> send them to https://
-                self._plain_http = True
-            else:
-                self.request = tls.current().wrap_socket(raw, server_side=True)      # the handshake, here in the connection's own thread
-                self.request.settimeout(60)
+            self.server.watch(self, raw, self.tls_timeout)      # the whole handshake, not each step of it
+            try:
+                first = raw.recv(1, socket.MSG_PEEK)
+                if not first:
+                    raise ConnectionAbortedError("closed before sending anything")
+                if first != b"\x16":                  # a TLS connection starts with 0x16; this is somebody typing http:// -> send them to https://
+                    self._plain_http = True
+                else:
+                    self.request = tls.current().wrap_socket(raw, server_side=True)      # the handshake, here in the connection's own thread
+                    self.request.settimeout(60)
+            finally:
+                self.server.unwatch(self)
         super().setup()
 
     def handle(self):
         if self._plain_http:
-            return self._redirect_to_https()
+            self.server.watch(self, self.connection, self.head_seconds)
+            try:
+                return self._redirect_to_https()
+            finally:
+                self.server.unwatch(self)
         super().handle()
+
+    def handle_one_request(self):
+        # Waiting for the next request of a connection that is kept open may take a while (timeout); a request that has begun may not.
+        try:
+            if not self.rfile.peek(1):
+                self.close_connection = True
+                return
+        except (OSError, ValueError):             # timed out, reset, closed
+            self.close_connection = True
+            return
+        self.server.watch(self, self.connection, self.head_seconds)
+        try:
+            super().handle_one_request()
+        finally:
+            self.server.unwatch(self)
+
+    def parse_request(self):
+        try:
+            return super().parse_request()
+        finally:
+            self.server.unwatch(self)             # the headers are in: answering may take as long as it takes
 
     def finish(self):
         try:
@@ -4325,8 +4466,17 @@ class Handler(BaseHTTPRequestHandler):
             if n < 0 or n > limit:
                 self._json({"error": "body too large"}, 413)
                 return None
-            data = json.loads(self.rfile.read(n) or b"{}")
-        except (ValueError, json.JSONDecodeError):
+            self.server.watch(self, self.connection, self.body_seconds)
+            try:
+                raw = self.rfile.read(n)
+            finally:
+                self.server.unwatch(self)
+            if len(raw) < n:                      # cut off, or too slow
+                self.close_connection = True
+                self._json({"error": "bad request"}, 400)
+                return None
+            data = json.loads(raw or b"{}")
+        except (ValueError, RecursionError):      # (json.JSONDecodeError is a ValueError; thousands of nested brackets end in a RecursionError)
             self._json({"error": "bad request"}, 400)
             return None
         if not isinstance(data, dict):
@@ -4572,7 +4722,7 @@ class Handler(BaseHTTPRequestHandler):
             try:
                 prof = conns.candidate(data.get("profile") or {})
             except ValueError as e:      # e.g. a URL that is not http(s):// - report it like any other failed test
-                return self._json({"ok": False, "error": str(e), "kind": "url", "hint": HINTS["url"]})
+                return self._json({"ok": False, "error": str(e), "kind": "url", "hint": HINTS["url"] if "URL" in str(e) else ""})
             return self._json(test_connection(app.cfg, prof))
         if action == "save":
             p = conns.upsert(data.get("profile") or {})

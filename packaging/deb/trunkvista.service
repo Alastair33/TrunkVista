@@ -21,6 +21,7 @@ StateDirectoryMode=0750
 WorkingDirectory=/var/lib/trunkvista
 ExecStart=/usr/lib/trunkvista/trunkvista.py --no-browser --host ${TRUNKVISTA_HOST} --port ${TRUNKVISTA_PORT} --data-dir /var/lib/trunkvista --require-login $TRUNKVISTA_ARGS
 Restart=on-failure
+LimitNOFILE=4096
 RestartSec=5
 UMask=0077
 

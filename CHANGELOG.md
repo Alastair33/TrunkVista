@@ -15,6 +15,13 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 **Shorter README.** The README is a one-screen start page now (what it is, the four install lines, the download files, a few everyday commands): the long parts moved unchanged into `docs/` - an *administration guide* (install details, `trunkvista-setup`, accounts, HTTPS, updates, troubleshooting), *Servers*, *Changing the design* and a *maintainer guide*. Only two screenshots are kept (the weathermap and the heatmap); the other ten were removed. The release notes are no longer repeated in the README: they are in this file and on the Releases page.
 
+**Security fixes after a penetration test.**
+- *A saved Zabbix API token stays with its server.* Leaving the token (or password) field empty keeps the saved one only while the connection still points at the same server (scheme, host and port). Before, **Test** or **Save** with another address used the saved token there - whoever held an administrator's session could read the token back that way. With another address the page now asks for the token again.
+- *Connections that never finish cannot shut everybody out.* The server takes at most 512 connections at a time and 64 from one address (more get `503`), and a request that has begun must have its headers complete within 15 seconds and its body within 30, however slowly it drips in. Before, about a thousand half-open connections used up the service's file handles and nobody else got in. The service's file limit is 4096 now.
+- Zabbix API calls no longer follow redirects (the token would have travelled along); the message names the address to enter instead - typically `https://` instead of `http://`.
+
+**Fixed.** A malformed layout (a number where an object belongs, thousands of nested brackets) is answered with "bad request" instead of a server error and a traceback in the log; dropped connections no longer write tracebacks to the log; `stale_seconds` and `min_severity` given as text in `config.json` work.
+
 ## [1.3.0] - 2026-11-08
 
 **New name: TrunkVista.** The program, called ChannelView until now, is **TrunkVista**. It has a new logo, and everything that carried the name changed with it:
