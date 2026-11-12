@@ -252,6 +252,7 @@ class _NoRedirect(urllib.request.HTTPRedirectHandler):
 
 class ZabbixClient:
     """Minimal Zabbix 7.0 JSON-RPC client (API token or user/password -> Bearer auth)."""
+    reply_max = 64 << 20      # bytes of one answer; a big installation's item.get is a few MB
 
     def __init__(self, cfg):
         z = cfg["zabbix"]
@@ -287,7 +288,10 @@ class ZabbixClient:
         req = urllib.request.Request(self.url, body, headers, method="POST")
         try:
             with self.opener.open(req, timeout=self.timeout) as r:
-                data = json.loads(r.read().decode("utf-8"))
+                raw = r.read(self.reply_max + 1)      # (a wrong or hostile address that streams for ever must not fill the memory)
+            if len(raw) > self.reply_max:
+                raise ZabbixError(f"The answer of {self.url} is larger than {self.reply_max >> 20} MB: not a Zabbix API", kind="url")
+            data = json.loads(raw.decode("utf-8"))
         except urllib.error.HTTPError as e:
             to = str(e.headers.get("Location") or "")[:200] if 300 <= e.code < 400 and e.headers else ""
             e.close()
@@ -540,7 +544,7 @@ def _sre_catastrophic(p):
     """A repeat without an upper limit whose body repeats again is safe only when every pass starts with a character that the inner repeats cannot
     take - (?:/\\d+)* is fine (the slash ends each number), (\\d+)* and (a|aa)* and (?:\\w+\\s?)+ are not."""
     for op, av in p:
-        if op in _SRE_REPEATS and av[1] == _sre_c.MAXREPEAT:
+        if op in _SRE_REPEATS and av[1] > 10:      # (no upper limit, or a high one: {1,30} around a repeat is exponential too)
             loops = []
             if not _sre_collect(av[2], loops):
                 return True
@@ -4162,6 +4166,7 @@ class Auth:
         self._required = bool(require) or self.users.any()
         self.by_ip = Throttle(10, 300, clock)         # failed sign-ins from one address: 10 in 5 minutes
         self.by_user = Throttle(20, 900, clock)       # ... for one account, from anywhere: 20 in 15 minutes (does not stop addresses that signed in to it before)
+        self._klock = threading.Lock()
         self.known = {}                               # account -> {address: when it last signed in}: the owner is not locked out by strangers' wrong guesses
         self.by_pw = Throttle(10, 900, clock)         # wrong 'current password' while changing it (someone using a stolen session)
         threading.Thread(target=dummy_hash, daemon=True).start()      # (made now, so that the first unknown name is not slower than the rest)
@@ -4175,7 +4180,9 @@ class Auth:
         """-> (cookie key, user dict). Raises LoginError. Unknown user, wrong password and disabled account look the same from outside."""
         name = str(username or "").strip().lower()
         key = name if USER_RX.match(name) else "-"
-        by_account = 0 if ip in self.known.get(key, ()) else self.by_user.blocked(key)      # a stranger can use up the account's tries, but not the owner's usual address
+        with self._klock:
+            usual = ip in self.known.get(key, ())
+        by_account = 0 if usual else self.by_user.blocked(key)      # a stranger can use up the account's tries, but not the owner's usual address
         wait = max(self.by_ip.blocked(ip), by_account)
         if wait:
             audit("sign-in blocked", user=key, ip=ip)
@@ -4194,13 +4201,14 @@ class Auth:
         return self.sessions.create(u["username"], ip), u
 
     def _remember(self, key, ip):
-        seen = self.known.setdefault(key, {})
-        seen[ip] = self.sessions.clock()
-        if len(seen) > 20:      # (bounded: addresses that signed in longest ago go first)
-            for old in sorted(seen, key=seen.get)[:len(seen) - 20]:
-                del seen[old]
-        if len(self.known) > 1000:
-            del self.known[next(iter(self.known))]
+        with self._klock:
+            seen = self.known.setdefault(key, {})
+            seen[ip] = self.sessions.clock()
+            if len(seen) > 20:      # (bounded: addresses that signed in longest ago go first)
+                for old in sorted(seen, key=seen.get)[:len(seen) - 20]:
+                    del seen[old]
+            if len(self.known) > 1000:
+                del self.known[next(iter(self.known))]
 
     def public(self, sess):
         return {"name": sess["user"], "role": sess["role"], "idle_minutes": sess["idle_minutes"], "must_change": sess["must_change"]}
@@ -4422,6 +4430,8 @@ class DashServer(ThreadingHTTPServer):
 
 class Handler(BaseHTTPRequestHandler):
     server_version = "TrunkVista"
+    sys_version = ""        # (no "Python/3.x" in the Server header: it tells a scanner which interpreter to look up)
+    hsts = False            # --hsts: send Strict-Transport-Security on HTTPS (off by default, see the option)
     app: App = None
     edit_token = ""
     auth = None             # an Auth when the server has user accounts (sign-in); None = the older mode with the edit token
@@ -4512,6 +4522,9 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def version_string(self):
+        return self.server_version
+
     def _send(self, code, body: bytes, ctype="application/json; charset=utf-8", headers=()):
         if len(body) > 2048 and "gzip" in self.headers.get("Accept-Encoding", "").lower():      # a few hundred devices is a big JSON every 5 s: shrink it ~10x
             body = gzip.compress(body, 4)
@@ -4528,6 +4541,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("X-Frame-Options", "DENY")
         self.send_header("Referrer-Policy", "no-referrer")
+        if self.hsts and (self.server.tls is not None or self.secure_cookie):      # (a browser ignores it on plain HTTP)
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         for k, v in headers:
             self.send_header(k, v)
         if ctype.startswith("text/html"):
@@ -5126,6 +5141,9 @@ def main():
     ap.add_argument("--require-login", action="store_true", help="ask for a sign-in even before the first account exists (nobody can get in until `user add`)")
     ap.add_argument("--no-login", action="store_true", help="ignore the accounts and use the edit token instead - needed to listen on other addresses without any "
                                                             "account; anybody who can reach the port then sees everything (not recommended)")
+    ap.add_argument("--hsts", action="store_true", default=env("HSTS").lower() in ("1", "true", "yes"),
+                    help="send Strict-Transport-Security (1 year) so that browsers never fall back to http:// (also: TRUNKVISTA_HSTS=1). Only with a certificate "
+                         "that browsers trust: for a self-signed one it also removes the 'continue anyway' button")
     ap.add_argument("--secure-cookie", action="store_true", help="mark the sign-in cookie Secure although this server speaks plain HTTP: for a server "
                                                                  "behind an HTTPS reverse proxy (see the README)")
     ap.add_argument("--tls-cert", default=env("TLS_CERT"), metavar="FILE",
@@ -5185,19 +5203,22 @@ def main():
                  "or start with --no-login to use the older edit-token mode (not recommended).")
 
     server, port = None, args.port
-    for p in range(args.port, args.port + 20):
+    asked = any(a == "--port" or a.startswith("--port=") for a in sys.argv[1:])      # a port that was asked for (the service, a firewall rule) is the port, or nothing
+    for p in range(args.port, args.port + (1 if asked else 20)):
         try:
             server, port = DashServer((args.host, p), Handler), p
             break
         except OSError:
             continue
     if server is None:
-        sys.exit(f"No free port in {args.port}-{args.port + 19}.")
+        sys.exit(f"Port {args.port} is not free (is TrunkVista already running? see: ss -ltnp | grep {args.port})." if asked
+                 else f"No free port in {args.port}-{args.port + 19}.")
     server.tls = tls
     scheme = "https" if tls else "http"
     Handler.app = app
     Handler.auth = None if args.no_login else auth
     Handler.secure_cookie = args.secure_cookie
+    Handler.hsts = args.hsts
     signin = Handler.auth is not None and Handler.auth.required()
     if signin:
         Handler.edit_token = ""                          # no account-less editing: nothing to keep in a file

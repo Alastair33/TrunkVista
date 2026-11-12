@@ -2,6 +2,7 @@
 F1 - a saved Zabbix token must never be sent to another address than the one it was saved for;
 F2 - connections that never finish their request must not be able to shut everybody else out;
 F3 - strangers' wrong guesses must not lock the owner out (tests/test_accounts.py), F5 - weak passwords (same file);
+F6 - HSTS on request, F7 - no Python version in the Server header;
 F4 - an interface-name regex that can take exponential time must be refused, and a long item name must not freeze the server."""
 import socket
 import tempfile
@@ -246,6 +247,77 @@ class ReviewFixes(unittest.TestCase):
         self.assertIn("redirects to", str(e.exception))
         self.assertIn("/elsewhere", str(e.exception))
         self.assertEqual([m for m, _, _ in seen], ["POST"], "the token did not travel on to the redirect's target")
+
+
+class ResponseHeaders(unittest.TestCase):
+    def head(self, handler):
+        srv, port = serve(handler)
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        return get(port).split(b"\r\n\r\n")[0].decode("latin-1")
+
+    def test_the_server_header_names_no_python_version(self):
+        h = self.head(Pong)
+        self.assertIn("\r\nServer: TrunkVista\r\n", h + "\r\n")
+        self.assertNotIn("Python", h)
+        self.assertNotIn("Strict-Transport-Security", h, "plain HTTP never gets HSTS")
+
+    def test_hsts_only_when_asked_for_and_only_on_https(self):
+        class Proxied(Pong):
+            secure_cookie, hsts = True, True
+
+        class AskedButPlain(Pong):
+            hsts = True
+        self.assertIn("Strict-Transport-Security: max-age=31536000", self.head(Proxied))
+        self.assertNotIn("Strict-Transport-Security", self.head(AskedButPlain))
+        self.assertNotIn("Strict-Transport-Security", self.head(type("Proxied2", (Pong,), {"secure_cookie": True})), "off unless --hsts")
+
+
+class ZabbixReplySize(unittest.TestCase):
+    def test_an_endless_or_huge_answer_is_refused(self):
+        import http.server
+
+        class Big(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                self.rfile.read(int(self.headers.get("Content-Length", 0)))
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b'{"jsonrpc":"2.0","result":"' + b"x" * 5000 + b'","id":1}')
+
+            def log_message(self, *a):
+                pass
+        srv = http.server.HTTPServer(("127.0.0.1", 0), Big)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        self.addCleanup(srv.server_close)
+        self.addCleanup(srv.shutdown)
+        cfg = {"zabbix": {"url": "http://127.0.0.1:%d/api_jsonrpc.php" % srv.server_address[1], "token": "T" * 20, "timeout": 5, "verify_tls": True}}
+        z = mod.ZabbixClient(cfg)
+        self.assertEqual(len(z.call("x")), 5000, "within the limit")
+        z.reply_max = 1000
+        with self.assertRaises(mod.ZabbixError) as cm:
+            z.call("x")
+        self.assertIn("larger than", str(cm.exception))
+
+
+class PortAskedFor(unittest.TestCase):
+    def run_app(self, *args):
+        import subprocess
+        import sys
+        return subprocess.run([sys.executable, str(Path(mod.__file__)), "--no-browser", "--demo", "--data-dir", self.tmp.name, *args],
+                              capture_output=True, text=True, timeout=20)
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.busy = socket.socket()
+        self.busy.bind(("127.0.0.1", 0))
+        self.busy.listen(1)
+        self.addCleanup(self.busy.close)
+
+    def test_a_port_that_was_asked_for_and_is_taken_is_an_error(self):
+        r = self.run_app("--port", str(self.busy.getsockname()[1]))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("is not free", r.stderr)
 
 
 class CatastrophicRegex(unittest.TestCase):
