@@ -470,6 +470,102 @@ def public_metrics(m, short=False):
     return {k: m[k] for k in keys if k in m} or None
 
 
+try:
+    from re import _constants as _sre_c, _parser as _sre_p      # Python 3.11+
+except ImportError:      # pragma: no cover - older Pythons
+    import sre_constants as _sre_c
+    import sre_parse as _sre_p
+_SRE_REPEATS = tuple(getattr(_sre_c, n) for n in ("MAX_REPEAT", "MIN_REPEAT", "POSSESSIVE_REPEAT") if hasattr(_sre_c, n))
+NAME_MATCH_MAX = 256      # characters of an item name the interface regex is shown: bounds the work of a pattern that is merely slow, not exponential
+
+
+def _sre_children(op, av):
+    if op in _SRE_REPEATS:
+        return [av[2]]
+    if op == _sre_c.SUBPATTERN:
+        return [av[-1]]
+    if op == _sre_c.BRANCH:
+        return list(av[1])
+    if op in (_sre_c.ASSERT, _sre_c.ASSERT_NOT):
+        return [av[1]]
+    if op == _sre_c.GROUPREF_EXISTS:
+        return [p for p in av[1:] if p is not None]
+    if op == getattr(_sre_c, "ATOMIC_GROUP", None):
+        return [av]
+    return []
+
+
+def _sre_collect(p, loops):
+    """Collect the element of every repeat that can run more than once inside `p` into `loops`. False when `p` has a choice (|) anywhere."""
+    for op, av in p:
+        if op == _sre_c.BRANCH:
+            return False
+        if op in _SRE_REPEATS and av[1] > 1:
+            loops.append(av[2])
+        if not all(_sre_collect(c, loops) for c in _sre_children(op, av)):
+            return False
+    return True
+
+
+def _sre_matches(sub, ch):
+    """Can the one-character element `sub` of a repeat match `ch`? Anything that is not a plain character, class or dot counts as yes."""
+    if len(sub) != 1:
+        return True
+    op, av = sub[0]
+    if op == _sre_c.LITERAL:
+        return chr(av) == ch
+    if op == _sre_c.NOT_LITERAL:
+        return chr(av) != ch
+    if op != _sre_c.IN:
+        return True
+    hit, negate = False, False
+    for o, v in av:
+        if o == _sre_c.NEGATE:
+            negate = True
+        elif o == _sre_c.LITERAL:
+            hit = hit or chr(v) == ch
+        elif o == _sre_c.RANGE:
+            hit = hit or v[0] <= ord(ch) <= v[1]
+        elif o == _sre_c.CATEGORY:
+            kind = str(v).replace("CATEGORY_", "")
+            test = {"DIGIT": ch.isdigit(), "NOT_DIGIT": not ch.isdigit(), "SPACE": ch.isspace(), "NOT_SPACE": not ch.isspace(),
+                    "WORD": ch.isalnum() or ch == "_", "NOT_WORD": not (ch.isalnum() or ch == "_")}.get(kind, True)
+            hit = hit or test
+        else:
+            return True
+    return hit != negate
+
+
+def _sre_catastrophic(p):
+    """A repeat without an upper limit whose body repeats again is safe only when every pass starts with a character that the inner repeats cannot
+    take - (?:/\\d+)* is fine (the slash ends each number), (\\d+)* and (a|aa)* and (?:\\w+\\s?)+ are not."""
+    for op, av in p:
+        if op in _SRE_REPEATS and av[1] == _sre_c.MAXREPEAT:
+            loops = []
+            if not _sre_collect(av[2], loops):
+                return True
+            if loops:
+                first = av[2][0] if av[2] else None
+                if not first or first[0] != _sre_c.LITERAL or any(_sre_matches(sub, chr(first[1])) for sub in loops):
+                    return True
+        if any(_sre_catastrophic(c) for c in _sre_children(op, av)):
+            return True
+    return False
+
+
+def compile_name_regex(rx):
+    """Compile the interface-name regex of a connection. Raises re.error when it is invalid, has no (?P<ifname>) group, or can take exponential
+    time on a long item name ((a+)+, (a|a)*, (.*a)*: a repeat without an upper limit around another repeat or a choice) - Python's re cannot be
+    interrupted, so one such pattern and one long item name would freeze the whole server."""
+    compiled = re.compile(rx)
+    if "ifname" not in compiled.groupindex:
+        raise re.error("name_regex needs a named group (?P<ifname>...)")
+    if _sre_catastrophic(_sre_p.parse(rx)):
+        raise re.error("name_regex can take exponential time: do not repeat (with + * or {n,}) a group that itself repeats or has alternatives with |; "
+                       "use a plain character class such as [^(:]+? instead")
+    return compiled
+
+
 class ZabbixSource:
     demo = False
 
@@ -477,7 +573,7 @@ class ZabbixSource:
         self.cfg = cfg
         self.zbx = ZabbixClient(cfg)
         self.m = cfg["match"]
-        self.name_rx = re.compile(self.m["name_regex"])
+        self.name_rx = compile_name_regex(self.m["name_regex"])
 
     def version(self):
         return self.zbx.version()
@@ -591,7 +687,7 @@ class ZabbixSource:
         tags = {t.get("tag"): t.get("value") for t in it.get("tags", [])}
         if tags.get(self.m["tag_name"]):
             return tags[self.m["tag_name"]], tags.get(self.m["alias_tag"], "")
-        mm = self.name_rx.match(it["name"])
+        mm = self.name_rx.match(str(it["name"])[:NAME_MATCH_MAX])
         if mm and mm.groupdict().get("ifname"):
             return mm.group("ifname").strip(), (mm.groupdict().get("alias") or "")
         mi = re.search(r"\.(\d+)\]$", it["key_"])
@@ -1397,10 +1493,9 @@ class Connections:
         rx = p["match"].get("name_regex")
         if rx:
             try:
-                if "ifname" not in re.compile(rx).groupindex:
-                    raise ValueError("name_regex needs a named group (?P<ifname>...)")
+                compile_name_regex(rx)
             except re.error as e:
-                raise ValueError(f"name_regex is not a valid regular expression: {e}")
+                raise ValueError(f"name_regex is not usable: {e}")
         return p
 
     def candidate(self, d):
@@ -3614,6 +3709,13 @@ class AccountError(ValueError):
 
 PW_ITER = 600_000          # PBKDF2-HMAC-SHA256 rounds for NEW password hashes (the OWASP 2023 figure); the tests lower it
 PW_MIN, PW_MAX = 10, 200   # characters
+PW_ROWS = ("01234567890", "abcdefghijklmnopqrstuvwxyz", "qwertyuiop", "asdfghjkl", "zxcvbnm", "1q2w3e4r5t6y7u8i9o0p", "qazwsxedcrfv")      # a whole password that is a piece of one of these (or backwards) is a pattern
+PW_LEET = str.maketrans("013457@$", "oleastas")      # 0->o 1->l 3->e 4->a 5->s 7->t @->a $->s
+PW_COMMON = frozenset((      # the letters of a password (digits and symbols removed) that are on every list of the most used ones, and this program's own names
+    "password", "passwort", "passw", "admin", "administrator", "root", "letmein", "welcome", "changeme", "iloveyou", "monkey", "dragon", "master",
+    "qwerty", "qwertyuiop", "azerty", "asdfgh", "zxcvbn", "abc", "abcdef", "secret", "login", "trustno", "football", "baseball", "superman", "batman",
+    "trunkvista", "channelview", "zabbix", "cisco", "network", "default", "temp", "test", "guest", "user", "sunshine", "princess", "shadow", "hello",
+))
 USER_RX = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._@-]{0,63}$")
 ROLES = ("admin", "viewer")
 DEFAULT_IDLE = {"admin": 60, "viewer": 480}      # minutes without activity until a session ends (0 = never)
@@ -3710,6 +3812,14 @@ def check_new_password(password, username="") -> str:
         return "The password cannot be only spaces."
     if username and password.lower() == username.lower():
         return "The password must not be the user name."
+    low = password.lower()
+    if len(set(low)) < 5:
+        return "The password is too repetitive: use at least 5 different characters."
+    if any(low in row or low in row[::-1] for row in PW_ROWS):
+        return "The password is a run of keys or letters in order. Choose something that is not a pattern."
+    word = re.sub(r"[^a-z]", "", re.sub(r"^[^a-z]+|[^a-z]+$", "", low).translate(PW_LEET))      # 'P@ssw0rd2024!' and 'Password123!' -> 'password'
+    if word in PW_COMMON or (username and len(word) >= 3 and word == re.sub(r"[^a-z]", "", username.lower())):
+        return "The password is too easy to guess (a common word or the user name with digits added). Choose another."
     return ""
 
 
@@ -4051,7 +4161,8 @@ class Auth:
         self.data_dir = data_dir
         self._required = bool(require) or self.users.any()
         self.by_ip = Throttle(10, 300, clock)         # failed sign-ins from one address: 10 in 5 minutes
-        self.by_user = Throttle(20, 900, clock)       # ... for one account, from anywhere: 20 in 15 minutes
+        self.by_user = Throttle(20, 900, clock)       # ... for one account, from anywhere: 20 in 15 minutes (does not stop addresses that signed in to it before)
+        self.known = {}                               # account -> {address: when it last signed in}: the owner is not locked out by strangers' wrong guesses
         self.by_pw = Throttle(10, 900, clock)         # wrong 'current password' while changing it (someone using a stolen session)
         threading.Thread(target=dummy_hash, daemon=True).start()      # (made now, so that the first unknown name is not slower than the rest)
 
@@ -4064,7 +4175,8 @@ class Auth:
         """-> (cookie key, user dict). Raises LoginError. Unknown user, wrong password and disabled account look the same from outside."""
         name = str(username or "").strip().lower()
         key = name if USER_RX.match(name) else "-"
-        wait = max(self.by_ip.blocked(ip), self.by_user.blocked(key))
+        by_account = 0 if ip in self.known.get(key, ()) else self.by_user.blocked(key)      # a stranger can use up the account's tries, but not the owner's usual address
+        wait = max(self.by_ip.blocked(ip), by_account)
         if wait:
             audit("sign-in blocked", user=key, ip=ip)
             raise LoginError(f"Too many failed attempts. Try again in {wait} s.", 429, wait)
@@ -4077,8 +4189,18 @@ class Auth:
             audit("sign-in failed", user=key, ip=ip)
             raise LoginError("Wrong user name or password.")
         self.users.touch_login(u["username"])
+        self._remember(key, ip)
         audit("sign-in", user=u["username"], ip=ip, role=u["role"])
         return self.sessions.create(u["username"], ip), u
+
+    def _remember(self, key, ip):
+        seen = self.known.setdefault(key, {})
+        seen[ip] = self.sessions.clock()
+        if len(seen) > 20:      # (bounded: addresses that signed in longest ago go first)
+            for old in sorted(seen, key=seen.get)[:len(seen) - 20]:
+                del seen[old]
+        if len(self.known) > 1000:
+            del self.known[next(iter(self.known))]
 
     def public(self, sess):
         return {"name": sess["user"], "role": sess["role"], "idle_minutes": sess["idle_minutes"], "must_change": sess["must_change"]}

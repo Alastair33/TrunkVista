@@ -1,6 +1,8 @@
-"""Regression tests for two findings of the penetration test (November 2026):
+"""Regression tests for findings of the penetration test (November 2026):
 F1 - a saved Zabbix token must never be sent to another address than the one it was saved for;
-F2 - connections that never finish their request must not be able to shut everybody else out."""
+F2 - connections that never finish their request must not be able to shut everybody else out;
+F3 - strangers' wrong guesses must not lock the owner out (tests/test_accounts.py), F5 - weak passwords (same file);
+F4 - an interface-name regex that can take exponential time must be refused, and a long item name must not freeze the server."""
 import socket
 import tempfile
 import threading
@@ -244,6 +246,45 @@ class ReviewFixes(unittest.TestCase):
         self.assertIn("redirects to", str(e.exception))
         self.assertIn("/elsewhere", str(e.exception))
         self.assertEqual([m for m, _, _ in seen], ["POST"], "the token did not travel on to the redirect's target")
+
+
+class CatastrophicRegex(unittest.TestCase):
+    BAD = (r"^(?P<ifname>(a+)+)$", r"^(?P<ifname>(a|a)*)$", r"^(?P<ifname>(.*a)*)$", r"^(?P<ifname>(?:\w+\s?)+)$", r"^(?P<ifname>(a|aa){1,}b)$",
+           r"^(?P<ifname>((a*)*)b)$", r"(?P<ifname>(?:x(?:a+)*)+)")
+    GOOD = (mod.DEFAULTS["match"]["name_regex"] if hasattr(mod, "DEFAULTS") else r"^Interface (?P<ifname>[^(:]+?)(?:\((?P<alias>.*?)\))?: ",
+            r"^(?P<ifname>[A-Za-z]+\d+(?:/\d+)*)", r"^(?P<ifname>\S+) status$", r"^Port (?P<ifname>\d{1,3}(?:\.\d{1,3}){3})$", r"(?P<ifname>Gi|Te)\d+")
+
+    def test_exponential_patterns_are_refused_when_saved_and_when_loaded(self):
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        conns = mod.Connections(Path(d.name) / "connections.json", {"zabbix": {}})
+        for rx in self.BAD:
+            with self.assertRaises(mod.re.error, msg=rx):
+                mod.compile_name_regex(rx)
+            with self.assertRaises(ValueError, msg=rx):
+                conns.upsert({"name": "x", "url": "https://z.example.com", "token": "T" * 20, "match": {"name_regex": rx}})
+
+    def test_ordinary_patterns_still_work(self):
+        for rx in self.GOOD:
+            self.assertIn("ifname", mod.compile_name_regex(rx).groupindex, rx)
+        self.assertIn("named group", self._why(r"^(?P<x>a+)$"))
+
+    def _why(self, rx):
+        try:
+            mod.compile_name_regex(rx)
+        except mod.re.error as e:
+            return str(e)
+        return ""
+
+    def test_a_long_item_name_is_cut_before_matching(self):
+        src = mod.ZabbixSource.__new__(mod.ZabbixSource)
+        src.m = {"tag_name": "interface", "alias_tag": "alias", "name_regex": ""}
+        src.name_rx = mod.compile_name_regex(r"^Interface (?P<ifname>[^(:]+?)(?:\((?P<alias>.*?)\))?: ")
+        t0 = time.time()
+        name, alias = src._ifname({"name": "Interface " + "x" * 200000 + ": Bits received", "key_": "net.if.in[ifHCInOctets.5]", "tags": []})
+        self.assertLess(time.time() - t0, 1.0)
+        self.assertEqual(name, "idx:5", "(the cut name no longer matches, so the item falls back to the SNMP index)")
+        self.assertEqual(src._ifname({"name": "Interface Gi0/1(uplink): Bits received", "key_": "net.if.in[ifHCInOctets.5]", "tags": []}), ("Gi0/1", "uplink"))
 
 
 if __name__ == "__main__":

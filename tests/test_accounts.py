@@ -75,6 +75,16 @@ class Passwords(unittest.TestCase):
         self.assertIn("text", ok(12345678901))
         self.assertIn("text", ok(None))
 
+    def test_weak_passwords_of_enough_length_are_refused(self):
+        ok = M.check_new_password
+        for weak in ("1234567890", "0987654321", "qwertyuiop", "abcdefghijkl", "aaaaaaaaaaaa", "1212121212", "Password123!", "P@ssw0rd2024", "administrator",
+                     "TrunkVista1", "zabbix12345", "qazwsxedcrfv"):
+            self.assertNotEqual(ok(weak), "", weak)
+        self.assertIn("user name", ok("Alice-Smith1", "alice-smith1"))
+        self.assertNotEqual(ok("alice20242024", "alice"), "", "the user name with digits added")
+        for fine in ("a long enough one", "correct horse battery", "k7#Vm2qLx9pR", "my password is long", "blue-Heron-4-Sunsets"):
+            self.assertEqual(ok(fine, "alice"), "", fine)
+
     def test_idle_minutes(self):
         c = M.check_idle
         self.assertEqual(c(None, "admin"), M.DEFAULT_IDLE["admin"])
@@ -375,10 +385,19 @@ class AuthTests(unittest.TestCase):
         self.assertEqual(self.auth.login("bob", "another password!", "10.0.0.2")[1]["username"], "bob", "another address is fine")
         self.clock.advance(301)
         self.assertEqual(self.auth.login("alice", "a password of mine", "10.0.0.1")[1]["username"], "alice")
+        self.assertEqual(self.auth.login("bob", "another password!", "10.0.0.2")[1]["username"], "bob")      # bob signs in from a usual address
         for i in range(20):                                           # many addresses, one account
             self.fails("bob", "guess number %d" % i, ip="10.1.%d.1" % i)
-        self.assertEqual(self.fails("bob", "another password!", ip="10.9.9.9").status, 429)
+        self.assertEqual(self.fails("bob", "another password!", ip="10.9.9.9").status, 429, "a stranger is held back, right password or not")
         self.assertEqual(self.auth.login("alice", "a password of mine", "10.9.9.9")[1]["username"], "alice", "other accounts are fine")
+
+    def test_strangers_cannot_lock_the_owner_out(self):
+        self.auth.login("bob", "another password!", "10.0.0.2")
+        for i in range(60):                                           # an attacker with many addresses uses up bob's tries
+            self.fails("bob", "guess number %d" % i, ip="10.1.%d.%d" % (i // 250, i % 250 + 1))
+        self.assertEqual(self.auth.login("bob", "another password!", "10.0.0.2")[1]["username"], "bob", "bob's usual address still gets in")
+        self.assertEqual(self.fails("bob", "another password!", ip="10.7.7.7").status, 429, "an address nobody knows does not")
+        self.assertEqual(self.fails("bob", "wrong guess here", ip="10.0.0.2").status, 401, "a wrong password from the usual address is just wrong")
 
     def test_login_stays_required_once_there_was_an_account(self):
         a = M.Auth(self.tmp.name)

@@ -42,7 +42,7 @@ The same, by hand - for a machine where you want to see each step, or a private 
    sudo apt install ./trunkvista-latest.deb
    ```
 
-   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the password of the first administrator** (at least 10 characters). Leave it empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
+   This creates the `trunkvista` system user, installs the systemd service `trunkvista`, enables it and starts it. **It asks for the password of the first administrator** (at least 10 characters; common passwords, patterns like `1234567890` and the user name with digits are refused). Leave it empty and one is made for you - see [Accounts and sign-in](#accounts-and-sign-in).
 3. Open `http://127.0.0.1:8088` on that machine, **sign in**, and add your Zabbix in the window that opens (as above).
 
 ### trunkvista-setup, network access and updates
@@ -143,7 +143,7 @@ A running server sees these changes at once. **Locked out?** Every administrator
 **Good to know**
 
 - Passwords are stored as salted PBKDF2-HMAC-SHA256 hashes (600 000 rounds) in `users.json`; sessions as hashes of a random key in `sessions.json`; both owner-only. A new password, disabling an account or *sign out everywhere* ends all sessions of that account.
-- Wrong passwords are slowed down: 10 failures from one address in 5 minutes, or 20 for one account in 15 minutes, block further tries for a while (HTTP 429). Behind a reverse proxy all visitors share the proxy's address, so the limit for the address applies to all of them together; the limit per account protects them in any case.
+- Wrong passwords are slowed down: 10 failures from one address in 5 minutes block further tries from it for a while (HTTP 429); 20 failures for one account in 15 minutes block it for every address that has not signed in to that account before, so strangers cannot lock the owner out. Behind a reverse proxy all visitors share the proxy's address, so the limit for the address applies to all of them together; the limit per account protects them in any case.
 - The last enabled administrator cannot be deleted, demoted or disabled, and nobody can demote, disable or delete **their own** account.
 - Every sign-in, failed attempt and account change is in the log (`journalctl -u trunkvista | grep accounts`) - never a password or a session key.
 - The session cookie is `HttpOnly` and `SameSite=Strict`, and marked `Secure` when the dashboard serves HTTPS itself. Changes are only accepted with a request token that belongs to the session, so another website cannot make your browser change anything.
