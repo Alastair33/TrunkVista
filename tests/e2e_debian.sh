@@ -413,6 +413,9 @@ else
     $old_up && ok "the old server answers over HTTPS on its own port" || bad "the old server does not answer"
     check "the old administrator signs in (the old session cookie is made)" fixed "code --cacert $OLDTLS/server.crt -c $work/jar_old -X POST https://127.0.0.1:$OLDPORT/api/login -H 'Content-Type: application/json' -d '{\"username\":\"oldadmin\",\"password\":\"the old admin password\"}'" "200"
     users_old="$(sha256sum < "$OLDDATA/users.json")"
+    if $have_systemd; then       # (evidence for the timer check below: what systemd and deb-systemd-helper know before the old package goes)
+        { echo "old timer before the upgrade: is-enabled=$(systemctl is-enabled channelview-update.timer 2>&1)"; ls -la /etc/systemd/system/timers.target.wants/ /var/lib/systemd/deb-systemd-helper-enabled/timers.target.wants/ 2>&1; } | sed 's/^/    before: /' >"$work/timer.before"
+    fi
     $have_systemd || pkill -u channelview -f channelview.py; sleep 0.5
 
     apt_install "$deb" && ok "installing the new package replaces the old one" || bad "installing over the old package failed"
@@ -430,7 +433,14 @@ else
     check "the new /etc/default/trunkvista is still a conffile" bash -c "dpkg-query -W -f='\${Conffiles}\n' trunkvista | grep -q '$DEFAULTS'"
     check "no second administrator was made, no random password file" bash -c "[ \"\$(trunkvista-user list | wc -l)\" = 2 ] && ! test -e $DATA/initial-admin-password"
     if $have_systemd; then
-        check "the nightly update check that was on stays on (new timer enabled, old one gone)" bash -c "systemctl is-enabled --quiet trunkvista-update.timer && ! systemctl is-enabled --quiet channelview-update.timer"
+        if systemctl is-enabled --quiet trunkvista-update.timer && ! systemctl is-enabled --quiet channelview-update.timer; then
+            ok "the nightly update check that was on stays on (new timer enabled, old one gone)"
+        else
+            bad "the nightly update check that was on stays on (new timer enabled, old one gone)"
+            cat "$work/timer.before"
+            { echo "new timer: is-enabled=$(systemctl is-enabled trunkvista-update.timer 2>&1)   old timer: is-enabled=$(systemctl is-enabled channelview-update.timer 2>&1)"
+              ls -la /etc/systemd/system/timers.target.wants/ /var/lib/systemd/deb-systemd-helper-enabled/timers.target.wants/ /var/lib/systemd/deb-systemd-helper-masked/ 2>&1; } | sed 's/^/    after: /'
+        fi
         wait_https_port() { local _; for _ in $(seq 1 60); do curl -fsS -o /dev/null --cacert "/etc/trunkvista/tls/server.crt" "https://127.0.0.1:$1/" 2>/dev/null && return 0; sleep 0.5; done; return 1; }
         wait_https_port "$OLDPORT" && ok "the service answers over HTTPS on the old port" || bad "no answer from the new service"
     else
