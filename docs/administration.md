@@ -201,7 +201,7 @@ sudo systemctl restart trunkvista      # now:  https://<server>:8088/
 ## Updating from GitHub
 
 ```
-sudo trunkvista-update              # shows what is new, asks, installs, restarts the service
+sudo trunkvista-update              # shows what's new, asks, installs, restarts the service
 sudo trunkvista-update --check      # only look; exit status 10 = an update is available (handy for monitoring)
 sudo trunkvista-update --yes        # no question
 sudo trunkvista-update --version 1.0.0 --force     # go back to a given release
