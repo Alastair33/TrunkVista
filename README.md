@@ -59,8 +59,6 @@ https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista_dem
 https://github.com/Alastair33/TrunkVista/releases/latest/download/SHA256SUMS
 ```
 
-While the repository is private these only work in a browser signed in to GitHub; on a server use `gh release download --repo Alastair33/TrunkVista --pattern trunkvista-latest.deb --pattern SHA256SUMS`.
-
 ## Without the package
 
 ```
