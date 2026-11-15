@@ -402,7 +402,9 @@ def metrics_of(items, now, stale):
             continue
         if not math.isfinite(v):
             continue
-        clock, hid = _int(it.get("lastclock")), it["hostid"]
+        clock, hid = _int(it.get("lastclock")), it.get("hostid")
+        if not hid:
+            continue
         fs = FS_RX.match(key)
         if fs:
             if not clock or now - clock <= max(stale, 3600):
@@ -1151,7 +1153,7 @@ def demo_layout():
                 "label": "", "x": x, "y": y}
 
     def link(lid, nid_a, nid_b):
-        _, ha, ia, hb, ib, name = next(l for l in DEMO_LINKS if l[0] == lid)
+        _, _ha, ia, _hb, ib, name = next(l for l in DEMO_LINKS if l[0] == lid)
         return {"id": lid, "name": name, "a": {"node": nid_a, "if": ia}, "b": {"node": nid_b, "if": ib},
                 "bandwidth_bps": None}
 
@@ -4241,21 +4243,45 @@ def _logo_html():
 LOGIN_CSS = """
 body{display:block;overflow:auto}
 #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;padding:16px;background:var(--bg);overflow:auto}
-#login .lbox{width:min(360px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px 24px 20px;box-shadow:0 20px 60px var(--shadow, rgba(0,0,0,.35))}
-#login .llogo{width:60px;height:60px;display:block;margin:0 auto 8px}
+#login .stage{display:flex;align-items:center;justify-content:center;gap:64px;width:100%;margin:auto}
+#login .brand{flex:none;text-align:center}
+#login .lbox{flex:none;width:min(360px,100%);background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:26px 24px 20px;box-shadow:0 20px 60px var(--shadow, rgba(0,0,0,.35))}
+#login .llogo{width:150px;height:150px;display:block;margin:0 auto 12px}
 #login .llogo .node{fill:var(--accent)}
 #login .llogo .trunk{stroke:var(--accent)}
-#login h1{font-size:20px;margin:0;text-align:center}
-#login .lsub{margin:2px 0 14px;text-align:center;color:var(--muted);font-size:13px}
+#login h1{font-size:46px;margin:0;text-align:center;letter-spacing:-.8px}
+#login .tag{margin:6px 0 0;color:var(--muted);font-size:15px}
+#login .lsub{margin:0 0 14px;text-align:center;color:var(--muted);font-size:15px;font-weight:600}
+/* Intro: logo and name fade in at the centre (0 - .9 s), rest a moment, slide to the left while the sign-in box fades in (1.5 - 2.4 s).
+   The brand starts (box width + gap) / 2 to the right, which is exactly where it would stand alone in the middle of the row.
+   Any key or click, a repeat visit in the same tab and 'reduce motion' all show the final picture at once. */
+#login .brand{animation:tv-fade .9s ease-out both, tv-slide .9s cubic-bezier(.65,0,.25,1) 1.5s both}
+#login .lbox{animation:tv-box .8s ease-out 1.7s both}
+@keyframes tv-fade{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+@keyframes tv-slide{from{translate:212px 0}to{translate:0 0}}
+@keyframes tv-box{from{opacity:0;transform:translateX(-24px)}to{opacity:1;transform:none}}
+@media (max-width:719px){
+  #login .stage{flex-direction:column;gap:28px}
+  #login .llogo{width:104px;height:104px}
+  #login h1{font-size:32px}
+  @keyframes tv-slide{from{translate:0 170px}to{translate:0 0}}
+}
+.noint #login .brand,.noint #login .lbox{animation:none}
+@media (prefers-reduced-motion:reduce){#login .brand,#login .lbox{animation:none}}
 #login input{width:100%}
 #login button.primary{width:100%;margin-top:10px;padding:8px 12px;font-size:14px}
 #login .note{margin:12px 0 0;font-size:12px;color:var(--muted);text-align:center;line-height:1.5}
 """
 
 LOGIN_BODY = """<body>
-<main id="login"><div class="lbox">
+<script>try{if(sessionStorage.getItem("tv-intro")&&!/[?&]intro(&|$)/.test(location.search))document.documentElement.classList.add("noint");sessionStorage.setItem("tv-intro","1")}catch(e){}</script>
+<main id="login"><div class="stage">
+<div class="brand">
   __LOGO__
   <h1>TrunkVista</h1>
+  <p class="tag">Network &amp; server dashboard</p>
+</div>
+<div class="lbox">
   <p class="lsub">Sign in to continue</p>
   <form id="lf" autocomplete="on">
     <label class="fld"><span>User name</span><input id="lu" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" maxlength="64" required autofocus></label>
@@ -4264,11 +4290,14 @@ LOGIN_BODY = """<body>
     <button id="lgo" class="primary" type="submit">Sign in</button>
   </form>
   <p class="note">__NOTE__</p>
+</div>
 </div></main>
 <script>
 "use strict";
 const f = document.getElementById("lf"), err = document.getElementById("lerr"), go = document.getElementById("lgo"), pw = document.getElementById("lp");
 const fail = m => { err.textContent = m; err.hidden = false; };
+const skip = () => document.documentElement.classList.add("noint");      // a key or a click ends the intro at once
+addEventListener("keydown", skip, { once: true }); addEventListener("pointerdown", skip, { once: true });
 f.addEventListener("submit", async e => {
   e.preventDefault(); err.hidden = true; go.disabled = true;
   try {

@@ -58,7 +58,8 @@ def main():
         print("whats_new: README.md already up to date")
     else:
         readme.write_text(new, encoding="utf-8")
-        print(f"whats_new: README.md now shows {len(segs)} version(s), newest {re.search(r'in (\S+)', segs[0]).group(1)}")
+        newest = re.search(r"in (\S+)", segs[0]).group(1)      # (outside the f-string: a backslash inside one is a SyntaxError before Python 3.12)
+        print(f"whats_new: README.md now shows {len(segs)} version(s), newest {newest}")
     return 0
 
 

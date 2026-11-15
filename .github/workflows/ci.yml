@@ -28,7 +28,7 @@ jobs:
       - name: Python and page-script checks (pyflakes rules, JavaScript syntax)
         run: |
           pip install --quiet ruff
-          ruff check --select E9,F,B,PLE --ignore B904,B007,B008 trunkvista.py packaging/trunkvista-update packaging/whats_new.py tests tools
+          ruff check --target-version py39 --select E9,F,B,PLE --ignore B904,B007,B008 trunkvista.py packaging/trunkvista-update packaging/whats_new.py tests tools
           python3 - <<'EOF'
           import re, subprocess, sys
           from pathlib import Path

@@ -320,6 +320,28 @@ class PortAskedFor(unittest.TestCase):
         self.assertIn("is not free", r.stderr)
 
 
+class OddZabbixItems(unittest.TestCase):
+    def test_server_items_without_a_host_are_skipped_not_fatal(self):
+        now = time.time()
+        items = [{"key_": "system.cpu.util", "lastvalue": "5", "lastclock": str(int(now))},
+                 {"hostid": "", "key_": "system.cpu.util", "lastvalue": "6", "lastclock": str(int(now))},
+                 {"hostid": "7", "key_": "system.cpu.util", "lastvalue": "7", "lastclock": str(int(now))}]
+        out = mod.metrics_of(items, now, 300)
+        self.assertEqual(list(out), ["7"])
+
+
+class ReleaseToolsRunOnPython39(unittest.TestCase):
+    def test_no_backslash_inside_an_fstring_expression(self):
+        """Before Python 3.12 that is a SyntaxError, and the program promises 3.9."""
+        import ast
+        for rel in ("trunkvista.py", "packaging/whats_new.py", "packaging/trunkvista-update", "tools/build_demo.py"):
+            tree = ast.parse((Path(mod.__file__).parent / rel).read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if isinstance(node, ast.FormattedValue):
+                    seg = ast.get_source_segment((Path(mod.__file__).parent / rel).read_text(encoding="utf-8"), node.value) or ""
+                    self.assertNotIn("\\", seg, f"{rel}: backslash in an f-string expression: {seg[:60]}")
+
+
 class CatastrophicRegex(unittest.TestCase):
     BAD = (r"^(?P<ifname>(a+)+)$", r"^(?P<ifname>(a|a)*)$", r"^(?P<ifname>(.*a)*)$", r"^(?P<ifname>(?:\w+\s?)+)$", r"^(?P<ifname>(a|aa){1,}b)$",
            r"^(?P<ifname>((a*)*)b)$", r"(?P<ifname>(?:x(?:a+)*)+)")

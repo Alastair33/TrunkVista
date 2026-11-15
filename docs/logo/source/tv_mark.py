@@ -23,15 +23,16 @@ def mark(colors=SCALE, trunk=BLUE, heavy=False, knob=True, themed=False):
     ends = []
     for ang in p["angs"]:
         a = math.radians(ang); ends.append((p["fx"] + p["L"] * math.sin(a), p["fy"] - p["L"] * math.cos(a), a))
-    for (tx, ty, a), c in zip(ends, colors, strict=True):
+    for (tx, ty, a), c in zip(ends, colors):
         # the spoke stops inside the ring of the node, so nothing shows through the hole
         k = p["L"] - (p["ro"] + p["ri"]) / 2 if p["ri"] else p["L"]
         ex, ey = p["fx"] + k * math.sin(a), p["fy"] - k * math.cos(a)
         out.append(f'<path d="M{p["fx"]},{p["fy"]} L{ex:.2f},{ey:.2f}" stroke="{c}" stroke-width="{p["sw"]}" stroke-linecap="{"butt" if p["ri"] else "round"}" fill="none"/>')
-    for (tx, ty, a), c in zip(ends, colors, strict=True):
+    for (tx, ty, a), c in zip(ends, colors):
         out.append(donut(tx, ty, p["ro"], p["ri"], c) if p["ri"] else f'<circle cx="{tx:.2f}" cy="{ty:.2f}" r="{p["ro"]}" fill="{c}"/>')
-    out.append(f'<path d="M{p["fx"]},{p["fy"]} L{p["fx"]},{p["bottom"]}" stroke="{trunk}" stroke-width="{p["tw"]}" stroke-linecap="round" fill="none"{" class=\"trunk\"" if themed else ""}/>')
-    if knob: out.append(f'<circle cx="{p["fx"]}" cy="{p["fy"]}" r="{p["knob"]}" fill="{trunk}"{" class=\"node\"" if themed else ""}/>')
+    cls_trunk, cls_node = (' class="trunk"', ' class="node"') if themed else ("", "")      # (not inside the f-strings: a backslash there is a SyntaxError before Python 3.12)
+    out.append(f'<path d="M{p["fx"]},{p["fy"]} L{p["fx"]},{p["bottom"]}" stroke="{trunk}" stroke-width="{p["tw"]}" stroke-linecap="round" fill="none"{cls_trunk}/>')
+    if knob: out.append(f'<circle cx="{p["fx"]}" cy="{p["fy"]}" r="{p["knob"]}" fill="{trunk}"{cls_node}/>')
     # box of the drawing
     xs = [e[0] for e in ends]; ys = [e[1] for e in ends]
     box = (min(xs) - p["ro"], min(ys) - p["ro"], max(xs) + p["ro"], p["bottom"] + p["tw"] / 2)
