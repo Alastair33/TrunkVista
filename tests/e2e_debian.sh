@@ -305,7 +305,7 @@ cp "$DEFAULTS" "$work/defaults.after-network"
 trunkvista-setup --network --yes >"$work/setup.out" 2>&1; rc=$?
 [ $rc = 0 ] && cmp -s "$DEFAULTS" "$work/defaults.after-network" && ok "running it again changes nothing" || bad "the second run changed something"
 trunkvista-setup --local --yes >"$work/setup.out" 2>&1; rc=$?
-[ $rc = 0 ] && ok "trunkvista-setup --local" || { bad "trunkvista-setup --local failed"; cat "$work/setup.out"; }
+[ $rc = 0 ] && ok "trunkvista-setup --local" || { bad "trunkvista-setup --local failed"; cat "$work/setup.out"; journalctl -u trunkvista -n 30 --no-pager 2>&1 | sed 's/^/    journal: /'; systemctl status trunkvista --no-pager 2>&1 | sed 's/^/    status: /'; }
 check "back to this computer only (the certificate settings stay)" bash -c "grep -qx 'TRUNKVISTA_HOST=127.0.0.1' $DEFAULTS && grep -qx 'TRUNKVISTA_TLS_CERT=$TLS/server.crt' $DEFAULTS"
 $have_systemd || server_up
 wait_https && ok "still served over HTTPS" || bad "no HTTPS answer after --local"

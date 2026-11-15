@@ -199,6 +199,7 @@ restart_service() {
     [ "$changed" = yes ] || return 0
     if [ "$restart" = no ]; then say "Restart it for the changes to apply:  sudo systemctl restart trunkvista"; return 0; fi
     if ! have_systemd; then say "No systemd here: restart trunkvista yourself for the changes to apply."; return 0; fi
+    systemctl reset-failed trunkvista 2>/dev/null || true      # (several restarts in a few seconds are counted by systemd as "too frequent" and refused)
     systemctl restart trunkvista || die "the service could not be restarted: journalctl -u trunkvista -n 30"
     port="$(get_default TRUNKVISTA_PORT)"; port="${port:-8088}"
     i=0

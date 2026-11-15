@@ -368,7 +368,7 @@ class SetupOptions(ZabbixCase):
         with listener(port):
             r = self.box.setup("--network", "--no-https", "--yes", TRUNKVISTA_FORCE_SYSTEMD="1")
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-            self.assertEqual(self.box.calls(), ["systemctl is-enabled --quiet trunkvista-update.timer", "systemctl restart trunkvista"])
+            self.assertEqual(self.box.calls(), ["systemctl is-enabled --quiet trunkvista-update.timer", "systemctl reset-failed trunkvista", "systemctl restart trunkvista"])
             r = self.box.setup("--network", "--no-https", "--yes", TRUNKVISTA_FORCE_SYSTEMD="1")         # nothing changed: no restart
             self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
             self.assertEqual(self.box.calls().count("systemctl restart trunkvista"), 1)
