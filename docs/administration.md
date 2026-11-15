@@ -236,7 +236,7 @@ TrunkVista is the new name of ChannelView (same program, same data). On a Debian
 sudo apt install ./trunkvista-latest.deb
 ```
 
-The package of the new name **replaces** `channelview` and takes everything over: layouts, Zabbix connections, accounts, `custom.css`, the HTTPS certificate and key, the settings in `/etc/default` (their names change from `CHANNELVIEW_*` to `TRUNKVISTA_*`) and the nightly update check if you had switched it on. The installation prints what it moved. Everybody has to sign in once more. If you had no accounts yet (ChannelView 1.2.1 or older), it asks for the first administrator as in a fresh installation.
+The package of the new name **replaces** `channelview` and takes everything over: layouts, Zabbix connections, accounts, `custom.css`, the HTTPS certificate and key, the settings in `/etc/default` (their names change from `CHANNELVIEW_*` to `TRUNKVISTA_*`). The nightly update check is off afterwards (the old package switches it off while it is removed); `sudo trunkvista-setup --auto-update` turns it on again. The installation prints what it moved. Everybody has to sign in once more. If you had no accounts yet (ChannelView 1.2.1 or older), it asks for the first administrator as in a fresh installation.
 
 - **This step is manual, once:** `channelview-update` only looks for packages called `channelview`, so it cannot find the new release. After the first `apt install` above, `sudo trunkvista-update` works as usual.
 - **Tidy up:** `sudo apt purge channelview` removes the leftover package record; the moved data is not touched.
