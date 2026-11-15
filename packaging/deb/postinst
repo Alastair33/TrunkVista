@@ -112,7 +112,7 @@ if [ "$1" = "configure" ]; then
     fi
     migrate_old_install
     # systemd's StateDirectory= makes this too when the service starts; this covers manual runs and systems without systemd.
-    install -d -m 0750 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
+    install -d -m 0700 -o "$SVC_USER" -g "$SVC_USER" "$DATA"
     create_admin
     # the edit token of the older versions is not used any more: signed-in administrators edit
     if has_accounts; then rm -f "$DATA/edit_token"; fi

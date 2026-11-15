@@ -17,7 +17,7 @@ EnvironmentFile=-/etc/default/trunkvista
 # systemd creates /var/lib/trunkvista for the service user: connections.json (the Zabbix API token, owner-only), the layouts,
 # config.json, the accounts (users.json) and the signed-in sessions live there. --require-login: never an open dashboard, even if the accounts file is lost.
 StateDirectory=trunkvista
-StateDirectoryMode=0750
+StateDirectoryMode=0700
 WorkingDirectory=/var/lib/trunkvista
 ExecStart=/usr/lib/trunkvista/trunkvista.py --no-browser --host ${TRUNKVISTA_HOST} --port ${TRUNKVISTA_PORT} --data-dir /var/lib/trunkvista --require-login $TRUNKVISTA_ARGS
 Restart=on-failure

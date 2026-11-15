@@ -11,6 +11,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 - The sign-in page opens with a short intro: the logo and name fade in at the centre, then slide to the left while the sign-in box fades in (about 2.5 seconds). A key press or click skips it, so does a repeat visit in the same browser tab and the system setting "reduce motion"; add `?intro` to the address to see it again. It is CSS only and needs nothing from outside.
 
 ### Fixed after a review of the whole program
+- `trunkvista-cert` (and so `trunkvista-setup --network`) failed on machines whose full host name is longer than 64 characters, which a certificate's common name cannot hold. The full name stays in the certificate's address list, which is what browsers check.
+- The data folder is `0700` everywhere. The server always set it to 700 when it started, while the package and the service file said 750.
 - A server item without a host in the Zabbix reply is skipped instead of stopping the server metrics.
 - `packaging/whats_new.py` and the logo tool no longer use syntax that fails on Python 3.9 to 3.11; the CI lint now checks against Python 3.9 so that this cannot come back.
 

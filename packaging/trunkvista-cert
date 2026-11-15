@@ -11,7 +11,7 @@
 # TRUNKVISTA_TLS_CERT / TRUNKVISTA_TLS_KEY at those files instead - this script is then not needed.
 set -eu
 
-dir=/etc/trunkvista/tls
+dir="${TRUNKVISTA_TLS_DIR:-/etc/trunkvista/tls}"      # (the variable is for the tests)
 days=825
 force=no
 names=""
@@ -50,6 +50,12 @@ for a in $ips; do
     san="$san,IP:$a"
 done
 cn="${first:-localhost}"
+# A certificate's common name may have at most 64 characters (a cloud host's full name can have more). The full name stays in the
+# subjectAltName, which is what browsers check; the common name falls back to the first label of the name.
+if [ "${#cn}" -gt 64 ]; then
+    cn="${cn%%.*}"
+    [ "${#cn}" -le 64 ] || cn="$(printf '%s' "$cn" | cut -c1-64)"
+fi
 
 if [ -e "$dir/server.crt" ] || [ -e "$dir/server.key" ]; then
     [ "$force" = yes ] || die "$dir/server.crt already exists - use --force to replace it (the dashboard picks the new certificate up by itself)"
@@ -67,7 +73,7 @@ else
 fi
 
 umask 077
-install -d -m 0755 /etc/trunkvista
+install -d -m 0755 "$(dirname "$dir")"
 install -d -m "$dirmode" -o root -g "$group" "$dir"
 work="$(mktemp -d "$dir/.new.XXXXXX")"
 trap 'rm -rf "$work"' EXIT

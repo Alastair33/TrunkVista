@@ -99,7 +99,7 @@ apt_install() { apt-get install -y --no-install-recommends -o Dpkg::Options::=--
 echo "== install"
 apt_install "$deb" && ok "apt-get install ./package.deb succeeds" || bad "install failed"
 check "system user exists with home $DATA and no login shell" bash -c "getent passwd $SVC_USER | grep -q ':$DATA:/usr/sbin/nologin\$'"
-check "data folder belongs to the service user, mode 750" fixed "stat -c '%U:%G %a' $DATA" "$SVC_USER:$SVC_USER 750"
+check "data folder belongs to the service user, mode 700" fixed "stat -c '%U:%G %a' $DATA" "$SVC_USER:$SVC_USER 700"
 check "server installed, executable, interpreter fixed to /usr/bin/python3" bash -c "head -n1 /usr/lib/trunkvista/trunkvista.py | grep -qx '#!/usr/bin/python3' && test -x /usr/lib/trunkvista/trunkvista.py"
 check "trunkvista --version reports the packaged version" fixed "trunkvista --version | awk '{print \$NF}'" "$upstream"
 check "trunkvista-update is installed" test -x /usr/bin/trunkvista-update
@@ -421,7 +421,7 @@ else
     check "the old program, commands and service files are gone" bash -c "! test -e /usr/lib/channelview && ! test -e /usr/bin/channelview-user && ! test -e /lib/systemd/system/channelview.service"
     check "the old data folder was moved, not copied" bash -c "! test -e $OLDDATA && test -f $DATA/marker && test -f $DATA/custom.css"
     check "the accounts came along unchanged" fixed "sha256sum < $DATA/users.json" "$users_old"
-    check "the data belongs to the new service user" fixed "stat -c '%U:%G %a' $DATA $DATA/users.json | tr '\n' ' '" "$SVC_USER:$SVC_USER 750 $SVC_USER:$SVC_USER 600 "
+    check "the data belongs to the new service user" fixed "stat -c '%U:%G %a' $DATA $DATA/users.json | tr '\n' ' '" "$SVC_USER:$SVC_USER 700 $SVC_USER:$SVC_USER 600 "
     check "the old system user and group are gone, the new ones exist" bash -c "! getent passwd channelview && ! getent group channelview && getent passwd $SVC_USER"
     check "the certificate and key moved, the key readable by the new group only (640)" fixed "stat -c '%U:%G %a' /etc/trunkvista/tls/server.key | tr '\n' ' '; test -e /etc/channelview && echo old-etc-left" "root:$SVC_USER 640 "
     check "... and the key is the same one" fixed "sha256sum < /etc/trunkvista/tls/server.key" "$key_before"

@@ -4,6 +4,9 @@ F2 - connections that never finish their request must not be able to shut everyb
 F3 - strangers' wrong guesses must not lock the owner out (tests/test_accounts.py), F5 - weak passwords (same file);
 F6 - HSTS on request, F7 - no Python version in the Server header;
 F4 - an interface-name regex that can take exponential time must be refused, and a long item name must not freeze the server."""
+import os
+import re
+import shutil
 import socket
 import tempfile
 import threading
@@ -340,6 +343,25 @@ class ReleaseToolsRunOnPython39(unittest.TestCase):
                 if isinstance(node, ast.FormattedValue):
                     seg = ast.get_source_segment((Path(mod.__file__).parent / rel).read_text(encoding="utf-8"), node.value) or ""
                     self.assertNotIn("\\", seg, f"{rel}: backslash in an f-string expression: {seg[:60]}")
+
+
+@unittest.skipUnless(os.geteuid() == 0 and shutil.which("openssl"), "needs root (the tool sets owners) and openssl")
+class CertificateWithALongHostName(unittest.TestCase):
+    def test_a_host_name_over_64_characters_still_gets_a_certificate(self):
+        """Found by the CI runner, whose full host name has 77 characters: openssl refuses a common name longer than 64."""
+        import subprocess
+        d = tempfile.TemporaryDirectory()
+        self.addCleanup(d.cleanup)
+        tls = str(Path(d.name) / "etc" / "tls")
+        long_name = "runner-" + "a" * 50 + "." + "b" * 40 + ".example.net"
+        r = subprocess.run([str(Path(mod.__file__).parent / "packaging" / "trunkvista-cert"), "--name", long_name, "--ip", "10.0.0.5"],
+                           env={**os.environ, "TRUNKVISTA_TLS_DIR": tls}, capture_output=True, text=True, timeout=60)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        out = subprocess.run(["openssl", "x509", "-in", tls + "/server.crt", "-noout", "-subject", "-ext", "subjectAltName"],
+                             capture_output=True, text=True, timeout=30).stdout
+        cn = re.search(r"CN\s*=\s*([^\n,]+)", out).group(1).strip()
+        self.assertLessEqual(len(cn), 64)
+        self.assertIn(long_name, out, "the full name is in the subjectAltName, which is what browsers check")
 
 
 class CatastrophicRegex(unittest.TestCase):
