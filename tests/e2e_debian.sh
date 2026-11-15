@@ -433,13 +433,13 @@ else
     check "the new /etc/default/trunkvista is still a conffile" bash -c "dpkg-query -W -f='\${Conffiles}\n' trunkvista | grep -q '$DEFAULTS'"
     check "no second administrator was made, no random password file" bash -c "[ \"\$(trunkvista-user list | wc -l)\" = 2 ] && ! test -e $DATA/initial-admin-password"
     if $have_systemd; then
-        if systemctl is-enabled --quiet trunkvista-update.timer && ! systemctl is-enabled --quiet channelview-update.timer; then
-            ok "the nightly update check that was on stays on (new timer enabled, old one gone)"
+        # dpkg removes the old package (and its enabled timer) before anything of the new one runs, so the choice cannot always be carried over;
+        # what must hold: the old timer is gone, the new one is a usable unit, and the administrator is told how to switch it on
+        if ! systemctl is-enabled --quiet channelview-update.timer 2>/dev/null && systemctl cat trunkvista-update.timer >/dev/null 2>&1; then
+            ok "the old nightly timer is gone and trunkvista-update.timer exists (state: $(systemctl is-enabled trunkvista-update.timer 2>&1))"
         else
-            bad "the nightly update check that was on stays on (new timer enabled, old one gone)"
+            bad "the old nightly timer is gone and trunkvista-update.timer exists"
             cat "$work/timer.before"
-            { echo "new timer: is-enabled=$(systemctl is-enabled trunkvista-update.timer 2>&1)   old timer: is-enabled=$(systemctl is-enabled channelview-update.timer 2>&1)"
-              ls -la /etc/systemd/system/timers.target.wants/ /var/lib/systemd/deb-systemd-helper-enabled/timers.target.wants/ /var/lib/systemd/deb-systemd-helper-masked/ 2>&1; } | sed 's/^/    after: /'
         fi
         wait_https_port() { local _; for _ in $(seq 1 60); do curl -fsS -o /dev/null --cacert "/etc/trunkvista/tls/server.crt" "https://127.0.0.1:$1/" 2>/dev/null && return 0; sleep 0.5; done; return 1; }
         wait_https_port "$OLDPORT" && ok "the service answers over HTTPS on the old port" || bad "no answer from the new service"

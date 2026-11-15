@@ -63,9 +63,14 @@ migrate_old_install() {
     if getent group "$OLD" >/dev/null 2>&1; then
         delgroup --system --quiet "$OLD" >/dev/null 2>&1 || true
     fi
+    timer_hint=""
+    if [ -z "$enable_timer" ]; then
+        timer_hint="
+  The nightly update check could not be carried over (the old package switches it off while it is removed). If you had it on:  sudo trunkvista-setup --auto-update"
+    fi
     note "TrunkVista was called ChannelView before. What an installation of the old name left behind was moved over:${moved:- nothing}.
   The program, the commands (trunkvista-user, trunkvista-update, trunkvista-cert) and the service are called trunkvista now; everybody is asked to sign in again once.
-  Dispose of the leftover package record with:  sudo apt purge channelview"
+  Dispose of the leftover package record with:  sudo apt purge channelview${timer_hint}"
 }
 
 # An answer from debconf; "" when the question is unknown (dpkg -i without debconf's pre-configuration): never the error text.
