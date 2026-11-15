@@ -4,6 +4,9 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+### Licence
+- TrunkVista is now released under the **MIT License** (`LICENSE`; the Debian package carries it in its `copyright` file).
+
 ### Sign-in page intro
 - The sign-in page opens with a short intro: the logo and name fade in at the centre, then slide to the left while the sign-in box fades in (about 2.5 seconds). A key press or click skips it, so does a repeat visit in the same browser tab and the system setting "reduce motion"; add `?intro` to the address to see it again. It is CSS only and needs nothing from outside.
 

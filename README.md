@@ -113,4 +113,4 @@ python3 tools/build_demo.py trunkvista_demo.html   # rebuild the demo page after
 
 ## Licence
 
-Not chosen yet. Until a `LICENSE` file is added, nobody else may use or copy the code.
+[MIT](LICENSE) - free to use, copy, modify and share, provided the copyright notice stays with it. No warranty.
