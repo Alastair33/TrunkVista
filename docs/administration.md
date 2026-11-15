@@ -8,7 +8,7 @@ Install details, network access and HTTPS, accounts, updates, where files live a
 
 Supported: Debian 11+, Ubuntu 22.04+ (anything with Python 3.9+ and systemd).
 
-### The four lines
+### Installation:
 
 ```
 wget https://github.com/Alastair33/TrunkVista/releases/latest/download/trunkvista-latest.tar.gz
