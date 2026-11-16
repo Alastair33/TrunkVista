@@ -4,6 +4,15 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+### Privacy
+- Device names read from Zabbix are no longer saved in the layout file: the program stores only the host ids you picked and shows names live. Layouts from older versions are cleaned on the first start (and the `.bak` that still held the names is removed). `docs/administration.md` now lists what is and is not stored.
+
+### Editor
+- In **Add link**, the device picked as A or as B is lit on the map with a soft glow, so it is clear which device the link will start and end at.
+
+### Demo
+- The standalone demo opens on the list of all devices.
+
 ### Licence
 - TrunkVista is now released under the **MIT License** (`LICENSE`; the Debian package carries it in its `copyright` file).
 

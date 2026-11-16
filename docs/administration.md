@@ -260,6 +260,8 @@ The package of the new name **replaces** `channelview` and takes everything over
 
 The service runs as its own user `trunkvista`, sandboxed by systemd (no access to home directories, read-only system, only its data folder is writable).
 
+**What is (not) stored:** TrunkVista only displays what Zabbix reports. Device names, addresses, models, traffic, problems and every other value are read from the API on each refresh, kept in memory only and never written to disk, and the program writes no access log. The data folder holds your own configuration: the Zabbix address and token, the accounts, and the layout (which host ids and interface keys each map or tab shows, your labels, positions, colours and playlists). Layouts saved by older versions that still contain Zabbix host names are cleaned on the first start.
+
 **Backup:** copy `/var/lib/trunkvista` (it holds the API token and the password hashes – treat the copy as a secret).
 
 **Remove:** `sudo apt remove trunkvista` removes the program, keeps settings and data. `sudo apt purge trunkvista` also removes `/etc/default/trunkvista`. Data (including the accounts), the user and `/etc/trunkvista` (certificate, keys) are **kept** even on purge, so a reinstall picks up where you left off; to delete them for good: `sudo rm -rf /var/lib/trunkvista /etc/trunkvista && sudo deluser --system trunkvista`.

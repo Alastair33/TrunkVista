@@ -559,11 +559,11 @@
     return {
       version: 1, maps: { "m-wan": wan, "m-br": br, "m-dc": dc },
       tabs: [
+        { id: "t-all", name: "All devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, all: true, style: "list" },
         { id: "t-wan", name: "Core & WAN", type: "map", map: "m-wan" }, { id: "t-br", name: "Branches", type: "map", map: "m-br" }, { id: "t-dc", name: "Datacenter", type: "map", map: "m-dc" },
         { id: "t-srv", name: "Servers", type: "devices", hosts: [], hostnames: {}, groups: ["Linux servers", "Windows servers"], ifaces: 2 },
         { id: "t-rt", name: "Routers", type: "devices", hosts: [], hostnames: {}, groups: ["Cisco WAN routers", "Cisco edge"], ifaces: 4 },
         { id: "t-core", name: "Core switches", type: "devices", hosts: ["10001", "10002", "10008"], hostnames: { "10001": "core-c9500-1", "10002": "core-c9500-2", "10008": "dist-c9300-stack" }, groups: [], ifaces: 4 },
-        { id: "t-all", name: "All devices", type: "devices", hosts: [], hostnames: {}, groups: [], ifaces: 4, all: true, style: "list" },
       ],
       playlists: [{ id: "p-noc", name: "NOC wall", loop: true, items: [{ tab: "t-wan", seconds: 20 }, { tab: "t-br", seconds: 20 }, { tab: "t-dc", seconds: 20 }, { tab: "t-srv", seconds: 15 }, { tab: "t-rt", seconds: 15 }, { tab: "t-core", seconds: 15 }] }],
       settings: {},

@@ -37,3 +37,16 @@ class LoginIntro(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AddLinkHighlight(unittest.TestCase):
+    """In the editor's "Add link" form the picked devices glow on the map; the glow must never catch clicks or show outside edit mode."""
+    page = mod.PAGE
+
+    def test_picked_devices_are_drawn_with_a_glow_in_edit_mode_only(self):
+        self.assertIn("editing && canEdit && (n.id === lf.a || n.id === lf.b)", self.page)
+        self.assertIn('"pointer-events", "none"', self.page)
+        self.assertIn("TV.glow", self.page)
+
+    def test_picking_a_device_redraws_the_map(self):
+        self.assertIn('lf[key] = s.value; lf[ifKey] = ""; renderDrawer(); renderMain();', self.page)

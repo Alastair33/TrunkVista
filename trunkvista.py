@@ -1179,7 +1179,9 @@ def demo_layout():
     return {
         "version": 1,
         "maps": {"m-wan": wan, "m-br": br, "m-dc": dc},
-        "tabs": [
+        "tabs": [      # the first tab is what opens: the list of every device the API returns
+            {"id": "t-all", "name": "All devices", "type": "devices", "hosts": [], "hostnames": {}, "groups": [], "ifaces": 4,
+             "all": True, "style": "list"},
             {"id": "t-wan", "name": "Core & WAN", "type": "map", "map": "m-wan"},
             {"id": "t-br", "name": "Branches", "type": "map", "map": "m-br"},
             {"id": "t-dc", "name": "Datacenter", "type": "map", "map": "m-dc"},
@@ -1190,8 +1192,6 @@ def demo_layout():
             {"id": "t-core", "name": "Core switches", "type": "devices", "hosts": ["10001", "10002", "10008"],
              "hostnames": {"10001": "core-c9500-1", "10002": "core-c9500-2", "10008": "dist-c9300-stack"},
              "groups": [], "ifaces": 4},
-            {"id": "t-all", "name": "All devices", "type": "devices", "hosts": [], "hostnames": {}, "groups": [], "ifaces": 4,
-             "all": True, "style": "list"},
         ],
         "playlists": [{"id": "p-noc", "name": "NOC wall", "loop": True,
                        "items": [{"tab": "t-wan", "seconds": 20}, {"tab": "t-br", "seconds": 20},
@@ -1259,7 +1259,7 @@ def _validate_layout(d):
             if nid in ids or not HOSTID_RX.match(host):
                 raise ValueError(f"bad node {nid!r}")
             ids.add(nid)
-            node = {"id": nid, "host": host, "hostname": txt(n.get("hostname"), 100),
+            node = {"id": nid, "host": host,      # only the host id: the device name is read from Zabbix again on every refresh and never stored
                     "label": txt(n.get("label"), 60), "x": num(n.get("x"), -5000, 20000, 0),
                     "y": num(n.get("y"), -5000, 20000, 0)}
             if n.get("shape") in ("circle", "triangle"):      # default is square
@@ -1325,8 +1325,7 @@ def _validate_layout(d):
             hosts = [txt(h, 20) for h in (t.get("hosts") or [])[:300]]
             if not all(HOSTID_RX.match(h) for h in hosts):
                 raise ValueError("bad host id in devices tab")
-            names = t.get("hostnames") or {}
-            tab.update(hosts=hosts, hostnames={h: txt(names.get(h), 100) for h in hosts},
+            tab.update(hosts=hosts, hostnames={},      # (older layouts kept the Zabbix host names here; they are dropped: names are read live)
                        groups=[txt(g, 100) for g in (t.get("groups") or [])[:30]],
                        ifaces=int(num(t.get("ifaces"), 0, 12, 4)),
                        all=bool(t.get("all", False)),      # (older layouts also stored a 'limit' of 40 here - it is ignored now: 'all' means all)
@@ -1350,6 +1349,16 @@ def _validate_layout(d):
     return out
 
 
+def _holds_api_names(raw):
+    """True when a saved layout still carries device names copied from Zabbix (older versions stored them)."""
+    try:
+        if any(n.get("hostname") for m in (raw.get("maps") or {}).values() for n in (m.get("nodes") or [])):
+            return True
+        return any(t.get("hostnames") for t in (raw.get("tabs") or []))
+    except AttributeError:
+        return False
+
+
 class Store:
     """The layout (maps, tabs, playlists) of ONE connection, kept in a JSON file. path=None keeps it in memory only."""
 
@@ -1358,7 +1367,13 @@ class Store:
         self.data = None
         if path is not None and path.exists():
             try:
-                self.data = validate_layout(json.loads(path.read_text(encoding="utf-8")))
+                raw = json.loads(path.read_text(encoding="utf-8"))
+                self.data = validate_layout(raw)
+                if _holds_api_names(raw):      # an older file kept Zabbix host names: rewrite it without them (and drop the .bak that still has them)
+                    tmp = path.with_suffix(".tmp")
+                    tmp.write_text(json.dumps(self.data, indent=1), encoding="utf-8")
+                    os.replace(tmp, path)
+                    path.with_suffix(".bak").unlink(missing_ok=True)
             except Exception as e:
                 bad = path.with_suffix(".corrupt")
                 shutil.copy(path, bad)
@@ -2602,6 +2617,14 @@ function drawNode(layer, n, v, g) {
     grp.append(svg("circle", { cx: 0, cy, r: Math.max(4, 6 * g.k), fill: col }));
     grp.append(svg("text", { x: 0, y: g.ly + g.fs * 0.85, "text-anchor": "middle", "font-size": g.fs, "font-weight": 700, fill: TV.text, stroke: TV.halo, "stroke-width": 3, "stroke-linejoin": "round", "paint-order": "stroke", text: g.label }));
   }
+  if (editing && canEdit && (n.id === lf.a || n.id === lf.b)) {      // picked as device A or B in "Add link": a soft glow round the frame (the colour is the theme's glow: white on the dark theme) shows which one it is
+    const base = grp.firstChild;
+    for (const [w, o] of [[22, 0.1], [12, 0.2], [5, 0.35]]) {
+      const ring = base.cloneNode(false);
+      ring.setAttribute("class", "pickglow"); ring.setAttribute("fill", "none"); ring.setAttribute("stroke", TV.glow); ring.setAttribute("stroke-width", w); ring.setAttribute("opacity", o); ring.setAttribute("pointer-events", "none");
+      grp.insertBefore(ring, base);
+    }
+  }
   const notify = nodeNotify(n);
   if (!notify && editing && canEdit) {      // edit mode only: a dashed ring with a slash marks a device whose notifications are off (view and kiosk show nothing there)
     grp.append(svg("circle", { class: "muted-mark", cx: bx, cy: by, r: 8, fill: TV.halo, stroke: TV.gcap, "stroke-width": 1.5, "stroke-dasharray": "3 2" }),
@@ -3184,22 +3207,23 @@ function secTab(tab) {
     kids.push(el("label", { class: "row" }, allCb, el("span", {}, "Show all monitored hosts")));
     if (tab.all) kids.push(el("div", { class: "hint" }, "Lists every enabled host this API user may read - no limit. Long lists are paged: use “Per page” above the list. Hosts disabled in Zabbix are not monitored, so they are not listed."));
     kids.push(searchBox("hosts", "Add host (type 2+ letters)…", it => { if (!tab.hosts.includes(it.id)) { tab.hosts.push(it.id); tab.hostnames[it.id] = it.name; changed(true); setTimeout(loadView, 2500); } }));
-    for (const h of tab.hosts) kids.push(el("div", { class: "row" }, el("span", { class: "grow" }, tab.hostnames[h] || h), btn("✕", () => { tab.hosts = tab.hosts.filter(x => x !== h); delete tab.hostnames[h]; changed(true); }, "x")));
+    for (const h of tab.hosts) kids.push(el("div", { class: "row" }, el("span", { class: "grow" }, hostLive(h) || tab.hostnames[h] || h), btn("✕", () => { tab.hosts = tab.hosts.filter(x => x !== h); delete tab.hostnames[h]; changed(true); }, "x")));
     kids.push(searchBox("groups", "Add host group…", it => { if (!tab.groups.includes(it.id)) { tab.groups.push(it.id); changed(true); setTimeout(loadView, 2500); } }));
     for (const g of tab.groups) kids.push(el("div", { class: "row" }, el("span", { class: "grow" }, "group: " + g), btn("✕", () => { tab.groups = tab.groups.filter(x => x !== g); changed(true); }, "x")));
     kids.push(fld("Interfaces shown per device (busiest first)", inp(tab.ifaces, v => { tab.ifaces = clamp(parseInt(v) || 0, 0, 12); changed(false); setTimeout(loadView, 300); }, { type: "number" })));
   }
   return section("This tab", kids);
 }
+const hostLive = id => { const c = ((view && view.kind === "devices" && view.cards) || []).find(o => o.id === id); return c ? c.name : ""; };
 const lf = { a: "", ifA: "", b: "", ifB: "", name: "", mbps: "" };
 function secMap(tab) {
   const m = L.maps[tab.map], nodeById = id => m.nodes.find(n => n.id === id);
-  const label = n => n.label || n.hostname || n.host;
+  const label = n => nodeName(n);
   const add = searchBox("hosts", "Add device from Zabbix (type 2+ letters)…", it => {
     const k = m.nodes.length; m.nodes.push({ id: newId("n"), host: it.id, hostname: it.name, label: "", x: 200 + (k % 6) * 220, y: 140 + Math.floor(k / 6) * 140 });
     changed(true); setTimeout(loadView, 2500);
   });
-  const nodeSel = (key, ifKey) => { const s = el("select", {}, el("option", { value: "" }, "— device —"), ...m.nodes.map(n => el("option", { value: n.id }, label(n)))); s.value = lf[key]; s.addEventListener("change", () => { lf[key] = s.value; lf[ifKey] = ""; renderDrawer(); }); return s; };
+  const nodeSel = (key, ifKey) => { const s = el("select", {}, el("option", { value: "" }, "— device —"), ...m.nodes.map(n => el("option", { value: n.id }, label(n)))); s.value = lf[key]; s.addEventListener("change", () => { lf[key] = s.value; lf[ifKey] = ""; renderDrawer(); renderMain(); }); return s; };
   const nA = nodeById(lf.a), nB = nodeById(lf.b);
   const form = el("div", {},
     fld("Device A", nodeSel("a", "ifA")), nA ? fld("Interface on A", ifaceControl(nA.host, lf.ifA, v => { lf.ifA = v; })) : null,
@@ -3228,7 +3252,7 @@ function secMap(tab) {
   if (sel) {
     if (sel.type === "node" && nodeById(sel.id)) {
       const n = nodeById(sel.id);
-      secs.push(section("Selected device", el("div", { class: "hint" }, n.hostname + " (host " + n.host + ")"), fld("Label (blank = Zabbix name)", inp(n.label, v => { n.label = v.slice(0, 60); changed(false); })),
+      secs.push(section("Selected device", el("div", { class: "hint" }, (liveName(n) || "?") + " (host " + n.host + ")"), fld("Label (blank = Zabbix name)", inp(n.label, v => { n.label = v.slice(0, 60); changed(false); })),
         notifyField(n),
         btn("Remove device and its links", () => askDeleteNode(m, n))));
     } else if (sel.type === "link") {
@@ -3294,7 +3318,9 @@ function mapItem(target) {
   const l = m.links.find(x => x.id === target.id);
   return l && nodeById(l.a.node) && nodeById(l.b.node) ? { m, l, A: nodeById(l.a.node), B: nodeById(l.b.node), i: target.index } : null;
 }
-const nodeName = n => n.label || n.hostname || n.host;
+// Device names are never saved: they come from the live view of the map (n.hostname only exists in memory, for a device added a moment ago)
+const liveName = n => { const x = ((view && view.kind === "map" && view.nodes) || []).find(o => o.id === n.id); return (x && x.name) || n.hostname || ""; };
+const nodeName = n => n.label || liveName(n) || n.host;
 function ctxOpen(e, target) {
   if (!canEdit || !editing || document.body.classList.contains("kiosk")) return;      // only in edit mode - otherwise the browser's own menu stays
   const it = mapItem(target);
@@ -3490,11 +3516,11 @@ function askDeleteLink(m, l) {
     [btn("Cancel", closeModal), btn("Delete", () => { m.links = m.links.filter(x => x !== l); sel = null; closeModal(); changed(true); }, "dangerbtn")]);
 }
 function modifyNode(m, n) {
-  const label = el("input", { placeholder: "blank = " + (n.hostname || n.host), spellcheck: "false", maxlength: "60" }); label.value = n.label || "";
+  const label = el("input", { placeholder: "blank = " + (liveName(n) || n.host), spellcheck: "false", maxlength: "60" }); label.value = n.label || "";
   const x = el("input", { type: "number", step: "10" }), y = el("input", { type: "number", step: "10" }); x.value = n.x; y.value = n.y;
   const nt = el("input", { type: "checkbox", style: "width:auto;flex:none" }); nt.checked = nodeNotify(n);
   const box = openModal("Modify device", [
-    el("div", { class: "hint" }, "Zabbix host: " + (n.hostname || "?") + " (id " + n.host + ")"),
+    el("div", { class: "hint" }, "Zabbix host: " + (liveName(n) || "?") + " (id " + n.host + ")"),
     fld("Label shown on the map", label),
     el("div", { class: "row" }, fld("Position X", x), fld("Position Y", y)),
     el("div", { class: "hint" }, "Positions snap to a 10 px grid. You can also drag the device on the map while editing."),
