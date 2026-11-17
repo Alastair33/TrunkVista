@@ -4,6 +4,8 @@ All notable changes. The newest release is at the top; the text of a release's s
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-11-17
+
 ### Privacy
 - Device names read from Zabbix are no longer saved in the layout file: the program stores only the host ids you picked and shows names live. Layouts from older versions are cleaned on the first start (and the `.bak` that still held the names is removed). `docs/administration.md` now lists what is and is not stored.
 
